@@ -1,0 +1,110 @@
+{% if not positions %}
+<div class="flex items-center gap-3 py-6 text-gray-600">
+  <svg class="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+  <span class="text-sm">No open positions. Bot will enter when a signal triggers.</span>
+</div>
+{% else %}
+<div class="overflow-x-auto -mx-1">
+  <table class="w-full text-sm min-w-[700px]">
+    <thead class="text-xs text-gray-500 uppercase border-b border-[#1e2533]">
+      <tr>
+        <th class="py-2 pr-4 text-left font-medium">Symbol</th>
+        <th class="py-2 pr-3 text-right font-medium">Qty</th>
+        <th class="py-2 pr-3 text-right font-medium">Entry</th>
+        <th class="py-2 pr-3 text-right font-medium">Current</th>
+        <th class="py-2 pr-3 text-right font-medium">Unreal $</th>
+        <th class="py-2 pr-3 text-right font-medium">%</th>
+        <th class="py-2 pr-3 text-right font-medium">R</th>
+        <th class="py-2 pr-3 text-right font-medium">Stop</th>
+        <th class="py-2 pr-3 text-right font-medium">Dist Stop</th>
+        <th class="py-2 text-right font-medium">Time</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-[#1a2035]">
+      {% for p in positions %}
+      {% set near = p.near_stop %}
+      {% set profit = p.unreal_usd > 0 %}
+      <tr class="{% if near %}bg-amber-500/5 border-l-2 border-amber-500{% endif %} hover:bg-[#1a2035] transition group">
+
+        <!-- Symbol -->
+        <td class="py-3 pr-4">
+          <div class="flex items-center gap-2">
+            {% if near %}
+            <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+            {% elif profit %}
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+            {% else %}
+            <span class="w-1.5 h-1.5 rounded-full bg-red-400"></span>
+            {% endif %}
+            <a href="https://finance.yahoo.com/quote/{{ p.symbol }}" target="_blank"
+               class="font-bold text-white hover:text-indigo-400 transition font-mono">{{ p.symbol }}</a>
+          </div>
+        </td>
+
+        <!-- Qty -->
+        <td class="py-3 pr-3 text-right font-mono text-gray-300">{{ p.qty }}</td>
+
+        <!-- Entry -->
+        <td class="py-3 pr-3 text-right font-mono text-gray-400">${{ "%.2f"|format(p.entry) }}</td>
+
+        <!-- Current -->
+        <td class="py-3 pr-3 text-right font-mono font-semibold text-gray-100">
+          {% if p.current %}${{ "%.2f"|format(p.current) }}{% else %}<span class="text-gray-700">--</span>{% endif %}
+        </td>
+
+        <!-- Unrealized $ -->
+        <td class="py-3 pr-3 text-right font-mono font-bold">
+          {% if p.current %}
+            <span class="{% if p.unreal_usd >= 0 %}text-emerald-400{% else %}text-red-400{% endif %}">
+              {{ "%+.2f"|format(p.unreal_usd) }}
+            </span>
+          {% else %}<span class="text-gray-700">--</span>{% endif %}
+        </td>
+
+        <!-- % -->
+        <td class="py-3 pr-3 text-right font-mono text-sm">
+          {% if p.current %}
+            <span class="{% if p.unreal_pct >= 0 %}text-emerald-400{% else %}text-red-400{% endif %}">
+              {{ "%+.1f"|format(p.unreal_pct) }}%
+            </span>
+          {% else %}<span class="text-gray-700">--</span>{% endif %}
+        </td>
+
+        <!-- R multiple -->
+        <td class="py-3 pr-3 text-right font-mono text-sm">
+          {% if p.current and p.r_multiple %}
+            <span class="{% if p.r_multiple >= 1 %}text-emerald-400{% elif p.r_multiple >= 0 %}text-amber-400{% else %}text-red-400{% endif %}">
+              {{ "%+.2f"|format(p.r_multiple) }}R
+            </span>
+          {% else %}<span class="text-gray-700">--</span>{% endif %}
+        </td>
+
+        <!-- Stop -->
+        <td class="py-3 pr-3 text-right font-mono text-gray-500">${{ "%.2f"|format(p.stop) }}</td>
+
+        <!-- Distance to stop -->
+        <td class="py-3 pr-3 text-right font-mono text-sm">
+          {% if p.current %}
+            <span class="{% if near %}text-amber-400 font-bold animate-pulse{% else %}text-gray-400{% endif %}">
+              {{ "%.1f"|format(p.dist_stop_pct) }}%
+            </span>
+          {% else %}<span class="text-gray-700">--</span>{% endif %}
+        </td>
+
+        <!-- Time in trade -->
+        <td class="py-3 text-right font-mono text-xs text-gray-500">
+          {% if p.hold_mins >= 60 %}
+            {{ (p.hold_mins // 60) }}h{{ p.hold_mins % 60 }}m
+          {% else %}
+            {{ p.hold_mins }}m
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% if not ibkr_ok %}
+<p class="text-xs text-gray-700 mt-2 text-right">Prices via yfinance (delayed ~15 min)</p>
+{% endif %}
+{% endif %}

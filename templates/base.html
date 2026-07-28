@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>little_greed</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            surface: '#0f1117',
+            card:    '#161b27',
+            border:  '#1e2533',
+            accent:  '#6366f1',
+          }
+        }
+      }
+    }
+  </script>
+  <script src="https://unpkg.com/htmx.org@2.0.3"></script>
+  <style>
+    body { background: #0f1117; }
+    .nav-link { @apply flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-gray-400 hover:text-white hover:bg-white/5 transition-all; }
+    .nav-link.active { @apply text-white bg-indigo-500/10 border border-indigo-500/20; }
+    .card { background: #161b27; border: 1px solid #1e2533; border-radius: 0.75rem; }
+    .stat-card { background: linear-gradient(135deg, #161b27 0%, #1a2035 100%); border: 1px solid #1e2533; border-radius: 0.75rem; }
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #2d3748; border-radius: 4px; }
+    .htmx-indicator { opacity: 0; transition: opacity 0.2s; }
+    .htmx-request .htmx-indicator { opacity: 1; }
+    .htmx-request.htmx-indicator { opacity: 1; }
+  </style>
+</head>
+<body class="text-gray-100 min-h-screen flex">
+
+  <!-- Sidebar -->
+  <aside id="sidebar" class="hidden lg:flex flex-col w-56 border-r border-[#1e2533] bg-[#0c1020] fixed h-full z-40">
+    <!-- Logo -->
+    <div class="px-5 py-5 border-b border-[#1e2533]">
+      <div class="flex items-center gap-2">
+        <div class="w-7 h-7 rounded-lg bg-indigo-600 flex items-center justify-center text-xs font-black text-white">$</div>
+        <span class="font-bold text-white tracking-tight">little_greed</span>
+      </div>
+      <p class="text-xs text-gray-600 mt-1">paper trading bot</p>
+    </div>
+
+    <!-- Nav links -->
+    <nav class="flex-1 px-3 py-4 space-y-1">
+      <a href="/dashboard" class="nav-link {% if request.url.path == '/dashboard' %}active{% endif %}">
+        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1" stroke-width="2"/><rect x="14" y="3" width="7" height="7" rx="1" stroke-width="2"/><rect x="3" y="14" width="7" height="7" rx="1" stroke-width="2"/><rect x="14" y="14" width="7" height="7" rx="1" stroke-width="2"/></svg>
+        Dashboard
+      </a>
+      <a href="/signals" class="nav-link {% if request.url.path == '/signals' %}active{% endif %}">
+        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4v16"/></svg>
+        Signals
+      </a>
+      <a href="/settings" class="nav-link {% if request.url.path == '/settings' %}active{% endif %}">
+        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/></svg>
+        Settings
+      </a>
+      <a href="/preflight" class="nav-link {% if request.url.path == '/preflight' %}active{% endif %}">
+        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        Preflight
+      </a>
+
+      <div class="pt-3 mt-3 border-t border-[#1e2533]">
+        <a href="/kill" class="nav-link text-red-400 hover:text-red-300 hover:bg-red-500/5 border border-red-500/20">
+          <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          Kill Switch
+        </a>
+      </div>
+    </nav>
+
+    <!-- Footer clock -->
+    <div class="px-4 py-3 border-t border-[#1e2533]">
+      <p class="text-xs text-gray-600">little_greed v0.1.0</p>
+      <p class="text-xs font-mono text-gray-500"
+         hx-get="/time" hx-trigger="load, every 10s" hx-swap="innerHTML">--:--:-- ET</p>
+    </div>
+  </aside>
+
+  <!-- Mobile top bar -->
+  <div class="lg:hidden fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 h-12 bg-[#0c1020] border-b border-[#1e2533]">
+    <div class="flex items-center gap-2">
+      <div class="w-6 h-6 rounded bg-indigo-600 flex items-center justify-center text-xs font-black text-white">$</div>
+      <span class="font-bold text-white text-sm">little_greed</span>
+    </div>
+    <button id="mob-menu-btn" class="text-gray-400 hover:text-white">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+    </button>
+  </div>
+
+  <!-- Mobile drawer -->
+  <div id="mob-drawer" class="hidden lg:hidden fixed inset-0 z-50">
+    <div class="absolute inset-0 bg-black/60" id="mob-overlay"></div>
+    <aside class="absolute left-0 top-0 bottom-0 w-56 bg-[#0c1020] border-r border-[#1e2533] flex flex-col">
+      <div class="px-5 py-4 border-b border-[#1e2533] flex items-center justify-between">
+        <span class="font-bold text-white">little_greed</span>
+        <button id="mob-close" class="text-gray-500 hover:text-white">✕</button>
+      </div>
+      <nav class="flex-1 px-3 py-4 space-y-1">
+        <a href="/dashboard" class="nav-link">Dashboard</a>
+        <a href="/signals"   class="nav-link">Signals</a>
+        <a href="/settings"  class="nav-link">Settings</a>
+        <a href="/preflight" class="nav-link">Preflight</a>
+        <a href="/kill"      class="nav-link text-red-400 mt-4 border border-red-500/20">Kill Switch</a>
+      </nav>
+    </aside>
+  </div>
+
+  <!-- Main content area -->
+  <div class="flex-1 lg:ml-56 flex flex-col min-h-screen">
+    <main class="flex-1 px-4 sm:px-6 py-6 pt-16 lg:pt-6 max-w-6xl w-full mx-auto">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+
+  <script>
+    const btn = document.getElementById('mob-menu-btn');
+    const drawer = document.getElementById('mob-drawer');
+    const overlay = document.getElementById('mob-overlay');
+    const close = document.getElementById('mob-close');
+    if (btn) btn.addEventListener('click', () => drawer.classList.remove('hidden'));
+    if (overlay) overlay.addEventListener('click', () => drawer.classList.add('hidden'));
+    if (close) close.addEventListener('click', () => drawer.classList.add('hidden'));
+  </script>
+</body>
+</html>

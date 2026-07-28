@@ -1,0 +1,69 @@
+{% if not signals %}
+<p class="text-gray-500 text-sm py-4">No signals found for the selected filters.</p>
+{% else %}
+<div class="bg-gray-900 border border-gray-800 rounded-lg overflow-x-auto">
+  <table class="w-full text-sm text-left">
+    <thead class="text-xs text-gray-400 uppercase border-b border-gray-700">
+      <tr>
+        <th class="py-2 px-3">Time</th>
+        <th class="py-2 px-3">Symbol</th>
+        <th class="py-2 px-3">Outcome</th>
+        <th class="py-2 px-3">Filters</th>
+        <th class="py-2 px-3">Values</th>
+        <th class="py-2 px-3">Reason</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-800">
+      {% for s in signals %}
+      {% set ts = s.get('ts','') %}
+      {% set time_str = ts[11:19] if ts|length > 10 else '--' %}
+      {% set sym = s.get('symbol','') %}
+      {% set outcome = s.get('outcome','') %}
+      {% set filters = s.get('filters', {}) %}
+      {% set values = s.get('values', {}) %}
+      {% set reason = s.get('reject_reason','') %}
+      <tr class="hover:bg-gray-800/40 transition">
+        <td class="py-2 px-3 font-mono text-xs text-gray-400">{{ time_str }}</td>
+        <td class="py-2 px-3 font-mono font-semibold">
+          <a href="https://finance.yahoo.com/quote/{{ sym }}" target="_blank"
+             class="text-blue-400 hover:text-blue-300">{{ sym }}</a>
+        </td>
+        <td class="py-2 px-3">
+          {% if outcome == 'entered' %}
+            <span class="bg-green-900/60 text-green-300 text-xs px-2 py-0.5 rounded">entered</span>
+          {% elif outcome == 'rejected' %}
+            <span class="bg-red-900/60 text-red-300 text-xs px-2 py-0.5 rounded">rejected</span>
+          {% elif outcome == 'already_held' %}
+            <span class="bg-gray-700 text-gray-400 text-xs px-2 py-0.5 rounded">held</span>
+          {% elif outcome == 'size_too_small' %}
+            <span class="bg-amber-900/60 text-amber-300 text-xs px-2 py-0.5 rounded">small</span>
+          {% else %}
+            <span class="bg-gray-700 text-gray-400 text-xs px-2 py-0.5 rounded">{{ outcome }}</span>
+          {% endif %}
+        </td>
+        <td class="py-2 px-3">
+          <div class="flex gap-1 flex-wrap">
+            {% for f in ['D1','D2','D3','I1','I2','I3'] %}
+              <span class="text-xs px-1 rounded font-mono {% if filters.get(f) %}bg-green-900/60 text-green-300{% else %}bg-red-900/60 text-red-300{% endif %}">{{ f }}</span>
+            {% endfor %}
+          </div>
+        </td>
+        <td class="py-2 px-3 text-xs text-gray-400 font-mono whitespace-nowrap">
+          {% if values.get('gap_pct') is not none %}gap {{ "%+.1f"|format(values.gap_pct) }}%{% endif %}
+          {% if values.get('rvol') is not none %} | rvol {{ "%.1f"|format(values.rvol) }}x{% endif %}
+          {% if values.get('price') %} | ${{ "%.2f"|format(values.price) }}{% endif %}
+        </td>
+        <td class="py-2 px-3 text-xs text-gray-500 max-w-xs">
+          {% if reason %}
+            <span title="{{ reason }}">{{ reason[:60] }}{% if reason|length > 60 %}…{% endif %}</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% if malformed %}
+<p class="text-xs text-gray-600 mt-2">{{ malformed }} malformed lines skipped.</p>
+{% endif %}
+{% endif %}

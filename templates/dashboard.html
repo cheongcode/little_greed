@@ -1,0 +1,295 @@
+{% extends "base.html" %}
+{% block content %}
+
+<!-- ── Top stat bar ───────────────────────────────────────────── -->
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+
+  <div class="stat-card p-4">
+    <p class="text-xs text-gray-500 uppercase tracking-widest mb-1">Bot Status</p>
+    {% if last_cycle_age_min is not none %}
+      <div class="flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full {% if last_cycle_age_min <= 10 %}bg-emerald-400 animate-pulse{% else %}bg-red-400{% endif %}"></span>
+        <p class="text-xl font-black {% if last_cycle_age_min <= 10 %}text-emerald-400{% else %}text-red-400{% endif %}">
+          {{ last_cycle_age_min }}m ago
+        </p>
+      </div>
+      <p class="text-xs text-gray-600 mt-1">last cycle</p>
+    {% else %}
+      <div class="flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+        <p class="text-base font-bold text-amber-400">Not running</p>
+      </div>
+      <p class="text-xs text-amber-600 mt-1">run: ./autostart.sh</p>
+    {% endif %}
+  </div>
+
+  <div class="stat-card p-4">
+    <p class="text-xs text-gray-500 uppercase tracking-widest mb-1">Open Positions</p>
+    <p class="text-3xl font-black text-white">{{ open_count }}</p>
+    <p class="text-xs text-gray-600 mt-1">of 20 max</p>
+  </div>
+
+  <div class="stat-card p-4">
+    <p class="text-xs text-gray-500 uppercase tracking-widest mb-1">Today P&L</p>
+    <p class="text-2xl font-black {% if today_pnl >= 0 %}text-emerald-400{% else %}text-red-400{% endif %}">
+      ${{ "%+.2f"|format(today_pnl) }}
+    </p>
+    <p class="text-xs text-gray-600 mt-1">realized only</p>
+  </div>
+
+  <div class="stat-card p-4">
+    <p class="text-xs text-gray-500 uppercase tracking-widest mb-1">Schedule</p>
+    <div class="space-y-1 mt-1">
+      <div class="flex items-center gap-1.5 text-xs text-gray-400"><span class="w-1.5 h-1.5 rounded-full bg-indigo-400 shrink-0"></span>Prefilter: 9:25 & 9:55 ET</div>
+      <div class="flex items-center gap-1.5 text-xs text-gray-400"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0"></span>Cycle: every 5 min</div>
+      <div class="flex items-center gap-1.5 text-xs text-gray-400"><span class="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0"></span>Force close: 15:51 ET</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Active strategies bar ──────────────────────────────────── -->
+<div class="card px-4 py-2.5 mb-4 flex flex-wrap items-center gap-2">
+  <span class="text-xs text-gray-500 mr-1">Active:</span>
+  {% set strat_colors = {'gap_and_go':'indigo','orb_15':'blue','vwap_reclaim':'teal','hod_break':'purple','volume_spike':'amber','momentum_15':'orange','trend_rider':'rose'} %}
+  {% for s in active_strategies %}
+  {% set c = strat_colors.get(s, 'gray') %}
+  <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-{{ c }}-500/15 text-{{ c }}-400 border border-{{ c }}-500/30">
+    {{ s.replace('_',' ').title() }}
+  </span>
+  {% endfor %}
+  <a href="/settings" class="ml-auto text-xs text-gray-600 hover:text-indigo-400 transition">Edit strategies →</a>
+</div>
+
+<!-- ── Positions + Activity feed ─────────────────────────────── -->
+<div class="grid grid-cols-1 lg:grid-cols-5 gap-4 mb-4">
+
+  <!-- Positions table (3/5) -->
+  <div class="lg:col-span-3 card p-4">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-xs font-semibold text-gray-400 uppercase tracking-widest">Live Positions</h2>
+      <span class="text-xs text-gray-600 flex items-center gap-1.5">
+        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+        auto-refresh 5s
+      </span>
+    </div>
+    <div id="positions-table" hx-get="/dashboard/data" hx-trigger="load, every 5s" hx-swap="innerHTML">
+      <p class="text-gray-600 text-sm py-4 text-center">Loading…</p>
+    </div>
+  </div>
+
+  <!-- Activity feed (2/5) -->
+  <div class="lg:col-span-2 card p-4">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-xs font-semibold text-gray-400 uppercase tracking-widest">Live Activity</h2>
+      <span class="text-xs text-gray-600 flex items-center gap-1.5">
+        <span class="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></span>
+        refresh 10s
+      </span>
+    </div>
+    <div id="activity-feed" hx-get="/dashboard/activity" hx-trigger="load, every 10s" hx-swap="innerHTML">
+      <p class="text-gray-600 text-xs py-3 text-center">Loading…</p>
+    </div>
+  </div>
+</div>
+
+<!-- ── Charts row ──────────────────────────────────────────────── -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+
+  <div class="card p-4">
+    <h2 class="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Cumulative P&L</h2>
+    <canvas id="pnlChart" height="150"></canvas>
+    <p id="chart-empty" class="text-gray-600 text-xs hidden py-4 text-center">No closed trades yet.</p>
+  </div>
+
+  <div class="card p-4">
+    <h2 class="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Position P&L ($)</h2>
+    <canvas id="positionChart" height="150"></canvas>
+    <p id="pos-empty" class="text-gray-600 text-xs hidden py-4 text-center">No open positions.</p>
+  </div>
+
+  <div class="card p-4">
+    <h2 class="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">R-Multiple</h2>
+    <canvas id="rChart" height="150"></canvas>
+    <p id="r-empty" class="text-gray-600 text-xs hidden py-4 text-center">No open positions.</p>
+  </div>
+</div>
+
+<!-- ── Stop distance strip ────────────────────────────────────── -->
+<div class="card p-4 mb-4" id="stop-strip-card" style="display:none">
+  <h2 class="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Distance to Stop</h2>
+  <div id="stop-strip" class="flex gap-2 flex-wrap"></div>
+</div>
+
+<!-- ── Strategy filters + live scan ──────────────────────────── -->
+<div class="card p-4 mb-4">
+  <div class="flex items-center justify-between mb-3">
+    <div>
+      <h2 class="text-xs font-semibold text-gray-400 uppercase tracking-widest">Strategy Filters — Live Scan</h2>
+      <p class="text-xs text-gray-600 mt-0.5">Runs all {{ active_strategies|length }} active strategies against watchlist</p>
+    </div>
+    <button id="scan-btn" onclick="runLiveScan()"
+      class="flex items-center gap-2 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg transition">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+      </svg>
+      Scan Now
+    </button>
+  </div>
+  <div id="strategy-panel">
+    <p class="text-gray-600 text-xs py-2">Click "Scan Now" to evaluate all watchlist tickers against active strategies.</p>
+  </div>
+</div>
+
+<!-- ── Trade history ──────────────────────────────────────────── -->
+<div class="card p-4">
+  <div class="flex items-center justify-between mb-3">
+    <h2 class="text-xs font-semibold text-gray-400 uppercase tracking-widest">Trade History</h2>
+    <span class="text-xs text-gray-600">last 50 fills</span>
+  </div>
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="text-xs text-gray-500 uppercase border-b border-[#1e2533]">
+        <tr>
+          <th class="py-2 pr-4 text-left">Time (UTC)</th>
+          <th class="py-2 pr-4 text-left">Symbol</th>
+          <th class="py-2 pr-4 text-left">Side</th>
+          <th class="py-2 pr-3 text-right">Qty</th>
+          <th class="py-2 pr-3 text-right">Fill $</th>
+          <th class="py-2 pr-3 text-right">Order ID</th>
+          <th class="py-2 text-left">Status</th>
+        </tr>
+      </thead>
+      <tbody id="trades-body" class="divide-y divide-[#1a2035]">
+        <tr><td colspan="7" class="py-6 text-gray-600 text-center text-sm">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+const BASE = { responsive:true, animation:{duration:400},
+  plugins:{legend:{display:false}},
+  scales:{
+    x:{ticks:{color:'#4b5563',font:{size:10}},grid:{color:'#1a2035'}},
+    y:{ticks:{color:'#4b5563',font:{size:10}},grid:{color:'#1a2035'}}
+  }
+};
+
+// ── P&L line chart ────────────────────────────────────────────
+let pnlChart=null;
+async function loadPnl() {
+  const d = await fetch('/dashboard/chart-data').then(r=>r.json());
+  const cv=document.getElementById('pnlChart'), em=document.getElementById('chart-empty');
+  if (!d.labels.length){cv.classList.add('hidden');em.classList.remove('hidden');return;}
+  cv.classList.remove('hidden');em.classList.add('hidden');
+  const last=d.values[d.values.length-1]??0, col=last>=0?'#10b981':'#ef4444';
+  const ctx=cv.getContext('2d'), g=ctx.createLinearGradient(0,0,0,180);
+  g.addColorStop(0,col+'33');g.addColorStop(1,col+'05');
+  if(pnlChart)pnlChart.destroy();
+  pnlChart=new Chart(ctx,{type:'line',data:{labels:d.labels,datasets:[{
+    data:d.values,borderColor:col,backgroundColor:g,borderWidth:2.5,
+    pointRadius:4,pointBackgroundColor:col,fill:true,tension:0.4}]},
+    options:{...BASE,plugins:{...BASE.plugins,
+      tooltip:{backgroundColor:'#161b27',borderColor:'#1e2533',borderWidth:1,
+      callbacks:{label:c=>' $'+c.parsed.y.toFixed(2)}}},
+    scales:{...BASE.scales,y:{...BASE.scales.y,ticks:{...BASE.scales.y.ticks,callback:v=>'$'+v}}}}
+  });
+}
+
+// ── Position + R charts ───────────────────────────────────────
+let posChart=null,rChart=null;
+async function loadPositionCharts(){
+  const d=await fetch('/dashboard/position-chart').then(r=>r.json());
+  // P&L bars
+  const cv=document.getElementById('positionChart'),em=document.getElementById('pos-empty');
+  if(!d.labels.length){cv.classList.add('hidden');em.classList.remove('hidden');}
+  else{
+    cv.classList.remove('hidden');em.classList.add('hidden');
+    if(posChart)posChart.destroy();
+    posChart=new Chart(cv,{type:'bar',data:{labels:d.labels,datasets:[{
+      data:d.pnl,backgroundColor:d.colors,borderColor:d.colors,borderWidth:1,borderRadius:4}]},
+      options:{...BASE,scales:{...BASE.scales,
+        y:{...BASE.scales.y,ticks:{...BASE.scales.y.ticks,callback:v=>'$'+v}}}}
+    });
+  }
+  // R-multiple
+  const rv=document.getElementById('rChart'),em2=document.getElementById('r-empty');
+  if(!d.labels.length){rv.classList.add('hidden');em2.classList.remove('hidden');}
+  else{
+    rv.classList.remove('hidden');em2.classList.add('hidden');
+    const rc=d.r_multiples.map(r=>r>=1?'#10b981':r>=0?'#f59e0b':'#ef4444');
+    if(rChart)rChart.destroy();
+    rChart=new Chart(rv,{type:'bar',data:{labels:d.labels,datasets:[{
+      data:d.r_multiples,backgroundColor:rc,borderColor:rc,borderWidth:1,borderRadius:4}]},
+      options:{...BASE,scales:{...BASE.scales,
+        y:{...BASE.scales.y,ticks:{...BASE.scales.y.ticks,callback:v=>v+'R'}}}}
+    });
+  }
+  // Stop strip
+  buildStopStrip(d);
+}
+
+function buildStopStrip(d){
+  const strip=document.getElementById('stop-strip'),card=document.getElementById('stop-strip-card');
+  if(!d.labels.length){card.style.display='none';return;}
+  card.style.display='';
+  strip.innerHTML=d.labels.map((sym,i)=>{
+    const pnl=d.pnl[i],stop=d.stops[i],entry=d.entries[i];
+    const risk=(entry-stop)*d.labels.length; // rough
+    const pct=Math.min(Math.abs(pnl)/(Math.abs(entry-stop)*3)*100,100);
+    const col=pnl>=0?'emerald':pnl>-(entry-stop)?'amber':'red';
+    return `<div class="flex-1 min-w-[90px] bg-[#0c1020] rounded-xl p-3 border border-${col}-500/20">
+      <p class="font-bold text-white text-sm font-mono">${sym}</p>
+      <p class="text-${col}-400 font-mono text-xs mt-0.5">${pnl>=0?'+':''}$${pnl.toFixed(2)}</p>
+      <div class="mt-2 h-1.5 bg-gray-800 rounded-full overflow-hidden">
+        <div class="h-full bg-${col}-500 rounded-full" style="width:${pct}%"></div>
+      </div>
+      <p class="text-xs text-gray-600 mt-1">stop $${stop.toFixed(2)}</p>
+    </div>`;
+  }).join('');
+}
+
+// ── Trade history ─────────────────────────────────────────────
+async function loadTrades(){
+  const rows=await fetch('/dashboard/trades').then(r=>r.json());
+  const tbody=document.getElementById('trades-body');
+  if(!rows.length){tbody.innerHTML='<tr><td colspan="7" class="py-6 text-gray-600 text-center text-sm">No trades yet.</td></tr>';return;}
+  tbody.innerHTML=[...rows].reverse().map(r=>{
+    const buy=r.side==='BUY',fill=parseFloat(r.fill_price||0);
+    const ts=(r.timestamp_iso||'--').replace('T',' ').slice(0,19);
+    return `<tr class="hover:bg-[#1a2035] transition">
+      <td class="py-2 pr-4 font-mono text-xs text-gray-500">${ts}</td>
+      <td class="py-2 pr-4"><a href="https://finance.yahoo.com/quote/${r.symbol}" target="_blank"
+         class="font-bold text-white hover:text-indigo-400 transition font-mono">${r.symbol}</a></td>
+      <td class="py-2 pr-4"><span class="px-2 py-0.5 rounded-full text-xs font-bold border ${buy
+        ?'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+        :'bg-red-500/15 text-red-400 border-red-500/30'}">${r.side}</span></td>
+      <td class="py-2 pr-3 text-right font-mono text-gray-300">${r.size}</td>
+      <td class="py-2 pr-3 text-right font-mono text-gray-200">${fill>0?'$'+fill.toFixed(2):'--'}</td>
+      <td class="py-2 pr-3 text-right font-mono text-xs text-gray-600">${r.order_id}</td>
+      <td class="py-2 text-xs font-medium ${r.status==='Filled'?'text-emerald-400':r.status==='PendingSubmit'?'text-amber-400':'text-gray-500'}">${r.status}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ── Live scan ─────────────────────────────────────────────────
+async function runLiveScan(){
+  const btn=document.getElementById('scan-btn'),panel=document.getElementById('strategy-panel');
+  btn.disabled=true;
+  btn.innerHTML=`<svg class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg> Scanning…`;
+  panel.innerHTML='<p class="text-gray-500 text-xs py-4 text-center">Running live scan against all active strategies (30–60s)…</p>';
+  try{
+    const html=await fetch('/dashboard/live-scan').then(r=>r.text());
+    panel.innerHTML=html;
+  }catch(e){panel.innerHTML=`<p class="text-red-400 text-xs py-2">Scan failed: ${e}</p>`;}
+  btn.disabled=false;
+  btn.innerHTML=`<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg> Scan Now`;
+}
+
+loadPnl();loadPositionCharts();loadTrades();
+setInterval(loadPnl,30000);
+setInterval(loadPositionCharts,10000);
+setInterval(loadTrades,8000);
+</script>
+{% endblock %}

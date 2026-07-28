@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="space-y-4">
+  <h1 class="text-2xl font-bold text-white">Signal Log</h1>
+
+  <!-- Summary -->
+  <p class="text-sm text-gray-400">
+    Today: <span class="text-white font-semibold">{{ today_considered }}</span> considered,
+    <span class="text-green-400 font-semibold">{{ today_entered }}</span> entered,
+    <span class="text-red-400 font-semibold">{{ today_rejected }}</span> rejected
+  </p>
+
+  <!-- Filter bar -->
+  <div class="bg-gray-900 border border-gray-800 rounded-lg p-4 flex flex-wrap gap-3 items-end">
+    <div>
+      <label class="block text-xs text-gray-500 mb-1">Date</label>
+      <input type="date" id="f-date" value="{{ default_date }}"
+        class="bg-gray-800 border border-gray-700 text-white rounded px-2 py-1 text-sm focus:outline-none"
+        oninput="filterSignals()"/>
+    </div>
+    <div>
+      <label class="block text-xs text-gray-500 mb-1">Symbol</label>
+      <input type="text" id="f-symbol" placeholder="e.g. AAPL"
+        class="bg-gray-800 border border-gray-700 text-white rounded px-2 py-1 text-sm w-28 focus:outline-none"
+        oninput="debounceFilter()"/>
+    </div>
+    <div>
+      <label class="block text-xs text-gray-500 mb-1">Outcome</label>
+      <select id="f-outcome"
+        class="bg-gray-800 border border-gray-700 text-white rounded px-2 py-1 text-sm focus:outline-none"
+        onchange="filterSignals()">
+        <option value="all">All</option>
+        <option value="entered">Entered</option>
+        <option value="rejected">Rejected</option>
+        <option value="already_held">Already held</option>
+        <option value="size_too_small">Size too small</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Table (HTMX target) -->
+  <div id="signals-table">
+    {% include "_signals_table.html" %}
+  </div>
+</div>
+
+<script>
+let _debounceTimer = null;
+function debounceFilter() {
+  clearTimeout(_debounceTimer);
+  _debounceTimer = setTimeout(filterSignals, 300);
+}
+function filterSignals() {
+  const date = document.getElementById('f-date').value;
+  const symbol = document.getElementById('f-symbol').value;
+  const outcome = document.getElementById('f-outcome').value;
+  const params = new URLSearchParams({ date, symbol, outcome });
+  fetch('/signals/data?' + params)
+    .then(r => r.text())
+    .then(html => { document.getElementById('signals-table').innerHTML = html; });
+}
+</script>
+{% endblock %}

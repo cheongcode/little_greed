@@ -1,0 +1,114 @@
+{% if not events %}
+<p class="text-gray-600 text-xs py-3 text-center">No activity yet. Bot will log decisions here once scanning starts.</p>
+{% else %}
+<div class="space-y-1 max-h-72 overflow-y-auto pr-1">
+{% for ev in events %}
+{% set ts = ev.ts[:19].replace('T',' ') if ev.ts else '--' %}
+{% set t = ev.type %}
+{% set d = ev.data %}
+
+{% if t == 'fill_buy' or t == 'entry' %}
+<div class="flex items-start gap-3 py-2 border-b border-[#1a2035]">
+  <span class="mt-0.5 w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
+  <div class="flex-1 min-w-0">
+    <div class="flex items-center gap-2 flex-wrap">
+      <span class="text-xs font-bold text-emerald-400">BUY</span>
+      <span class="font-mono font-bold text-white text-xs">{{ d.get('symbol','') }}</span>
+      {% if d.get('fill_price') and d.fill_price|float > 0 %}
+      <span class="text-xs text-gray-300">@ ${{ '%.2f'|format(d.fill_price|float) }}</span>
+      <span class="text-xs text-gray-500">× {{ d.get('size', d.get('qty','?')) }}</span>
+      {% elif d.get('price') %}
+      <span class="text-xs text-gray-300">@ ${{ '%.2f'|format(d.price|float) }}</span>
+      {% endif %}
+      {% if d.get('strategy') %}<span class="text-xs text-indigo-400">[{{ d.strategy }}]</span>{% endif %}
+    </div>
+    <p class="text-xs text-gray-600 mt-0.5 font-mono">{{ ts }}</p>
+  </div>
+</div>
+
+{% elif t == 'fill_sell' or t == 'stop_exit' or t == 'force_close' %}
+<div class="flex items-start gap-3 py-2 border-b border-[#1a2035]">
+  <span class="mt-0.5 w-2 h-2 rounded-full bg-red-400 shrink-0"></span>
+  <div class="flex-1 min-w-0">
+    <div class="flex items-center gap-2 flex-wrap">
+      <span class="text-xs font-bold text-red-400">SELL{% if t == 'stop_exit' %} [STOP]{% elif t == 'force_close' %} [EOD]{% endif %}</span>
+      <span class="font-mono font-bold text-white text-xs">{{ d.get('symbol','') }}</span>
+      {% if d.get('fill_price') and d.fill_price|float > 0 %}
+      <span class="text-xs text-gray-300">@ ${{ '%.2f'|format(d.fill_price|float) }}</span>
+      {% endif %}
+    </div>
+    <p class="text-xs text-gray-600 mt-0.5 font-mono">{{ ts }}</p>
+  </div>
+</div>
+
+{% elif t == 'stop_placed' %}
+<div class="flex items-start gap-3 py-2 border-b border-[#1a2035]">
+  <span class="mt-0.5 w-2 h-2 rounded-full bg-amber-400 shrink-0"></span>
+  <div class="flex-1 min-w-0">
+    <div class="flex items-center gap-2">
+      <span class="text-xs font-semibold text-amber-400">STOP SET</span>
+      <span class="font-mono text-white text-xs">{{ d.get('symbol','') }}</span>
+      {% if d.get('stop_price') %}<span class="text-xs text-gray-400">@ ${{ '%.2f'|format(d.stop_price|float) }}</span>{% endif %}
+    </div>
+    <p class="text-xs text-gray-600 font-mono">{{ ts }}</p>
+  </div>
+</div>
+
+{% elif t == 'broker_sync_added' %}
+<div class="flex items-start gap-3 py-2 border-b border-[#1a2035]">
+  <span class="mt-0.5 w-2 h-2 rounded-full bg-blue-400 shrink-0"></span>
+  <div class="flex-1 min-w-0">
+    <div class="flex items-center gap-2">
+      <span class="text-xs font-semibold text-blue-400">SYNC</span>
+      <span class="text-xs text-gray-300">{{ d.get('symbol','') }} recovered from broker ({{ d.get('qty','?') }} shares)</span>
+    </div>
+    <p class="text-xs text-gray-600 font-mono">{{ ts }}</p>
+  </div>
+</div>
+
+{% elif t == 'move_stop_to_entry' or t == 'trail_stop' %}
+<div class="flex items-start gap-3 py-2 border-b border-[#1a2035]">
+  <span class="mt-0.5 w-2 h-2 rounded-full bg-purple-400 shrink-0"></span>
+  <div class="flex-1 min-w-0">
+    <div class="flex items-center gap-2">
+      <span class="text-xs font-semibold text-purple-400">{{ 'BREAKEVEN' if t == 'move_stop_to_entry' else 'TRAIL' }}</span>
+      <span class="text-xs text-gray-300">{{ d.get('symbol','') }} stop moved</span>
+    </div>
+    <p class="text-xs text-gray-600 font-mono">{{ ts }}</p>
+  </div>
+</div>
+
+{% elif t == 'take_partial' %}
+<div class="flex items-start gap-3 py-2 border-b border-[#1a2035]">
+  <span class="mt-0.5 w-2 h-2 rounded-full bg-teal-400 shrink-0"></span>
+  <div class="flex-1 min-w-0">
+    <div class="flex items-center gap-2">
+      <span class="text-xs font-semibold text-teal-400">PARTIAL</span>
+      <span class="text-xs text-gray-300">{{ d.get('symbol','') }} sold {{ d.get('qty','?') }} shares at 0.75R</span>
+    </div>
+    <p class="text-xs text-gray-600 font-mono">{{ ts }}</p>
+  </div>
+</div>
+
+{% elif t == 'manual_kill' %}
+<div class="flex items-start gap-3 py-2 border-b border-[#1a2035]">
+  <span class="mt-0.5 w-2 h-2 rounded-full bg-red-600 shrink-0"></span>
+  <div class="flex-1 min-w-0">
+    <span class="text-xs font-bold text-red-500">KILL SWITCH — {{ d.get('count','?') }} positions flattened</span>
+    <p class="text-xs text-gray-600 font-mono">{{ ts }}</p>
+  </div>
+</div>
+
+{% else %}
+<div class="flex items-start gap-3 py-2 border-b border-[#1a2035] opacity-60">
+  <span class="mt-0.5 w-2 h-2 rounded-full bg-gray-600 shrink-0"></span>
+  <div class="flex-1 min-w-0">
+    <span class="text-xs text-gray-500">{{ t }}: {{ d.get('symbol', '') }}</span>
+    <p class="text-xs text-gray-700 font-mono">{{ ts }}</p>
+  </div>
+</div>
+{% endif %}
+
+{% endfor %}
+</div>
+{% endif %}

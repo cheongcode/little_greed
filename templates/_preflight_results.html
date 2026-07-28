@@ -1,0 +1,36 @@
+{% set passed = namespace(n=0) %}
+{% for r in results %}{% if r.status == 'pass' %}{% set passed.n = passed.n + 1 %}{% endif %}{% endfor %}
+
+<!-- Overall bar -->
+<div class="mb-4">
+  <div class="flex items-center justify-between mb-1">
+    <span class="text-sm font-semibold {% if passed.n == results|length %}text-green-400{% elif passed.n >= results|length * 0.7 %}text-amber-400{% else %}text-red-400{% endif %}">
+      {{ passed.n }}/{{ results|length }} passed
+    </span>
+  </div>
+  <div class="w-full bg-gray-800 rounded-full h-2">
+    <div class="h-2 rounded-full {% if passed.n == results|length %}bg-green-500{% elif passed.n >= results|length * 0.7 %}bg-amber-500{% else %}bg-red-500{% endif %}"
+         style="width: {{ (passed.n / results|length * 100)|int }}%"></div>
+  </div>
+</div>
+
+<!-- Check cards -->
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+{% for r in results %}
+<div class="bg-gray-900 border {% if r.status == 'pass' %}border-green-800{% elif r.status == 'warn' %}border-amber-800{% else %}border-red-800{% endif %} rounded-lg p-4">
+  <div class="flex items-center justify-between mb-1">
+    <span class="font-semibold text-sm text-white">{{ r.name }}</span>
+    <span class="text-xs px-2 py-0.5 rounded font-medium
+      {% if r.status == 'pass' %}bg-green-900/60 text-green-300
+      {% elif r.status == 'warn' %}bg-amber-900/60 text-amber-300
+      {% else %}bg-red-900/60 text-red-300{% endif %}">
+      {{ r.status }}
+    </span>
+  </div>
+  <p class="text-xs text-gray-400">{{ r.detail }}</p>
+  {% if r.status != 'pass' and r.fix_hint %}
+  <p class="text-xs text-gray-600 mt-1">→ {{ r.fix_hint }}</p>
+  {% endif %}
+</div>
+{% endfor %}
+</div>

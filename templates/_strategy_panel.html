@@ -1,0 +1,116 @@
+{% if not signals %}
+<p class="text-gray-600 text-sm py-2">No signal evaluations yet. Cycle hasn't run or no tickers scanned.</p>
+{% else %}
+<div class="space-y-3">
+  {% for s in signals %}
+  {% set vals = s.get('values', {}) %}
+  {% set filters = s.get('filters', {}) %}
+  {% set outcome = s.get('pass', false) %}
+  <div class="rounded-xl border {% if outcome %}border-emerald-500/30 bg-emerald-500/5{% else %}border-gray-700/50 bg-[#0f1520]{% endif %} p-4">
+
+    <!-- Header -->
+    <div class="flex items-center justify-between mb-3">
+      <div class="flex items-center gap-2">
+        <a href="https://finance.yahoo.com/quote/{{ s.symbol }}" target="_blank"
+           class="font-bold text-white text-base hover:text-indigo-400 transition">{{ s.symbol }}</a>
+        {% if outcome %}
+          <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">PASS ✓</span>
+        {% else %}
+          <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-red-500/20 text-red-400 border border-red-500/30">FAIL</span>
+        {% endif %}
+      </div>
+      {% if vals.get('price') %}
+      <span class="font-mono text-sm text-gray-300">${{ "%.2f"|format(vals.price) }}</span>
+      {% endif %}
+    </div>
+
+    <!-- Filter gauges -->
+    <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+
+      {% if vals.get('gap_pct') is not none %}
+      {% set gap = vals.gap_pct %}
+      {% set gap_thresh = thresholds.get('gap_pct', 3.0) %}
+      {% set gap_pct_fill = [[(gap / gap_thresh * 100), 0]|max, 100]|min %}
+      <div class="bg-[#0c1020] rounded-lg p-2.5">
+        <div class="flex justify-between items-center mb-1.5">
+          <span class="text-xs text-gray-500 font-medium">Gap %</span>
+          <span class="text-xs font-mono font-bold {% if gap >= gap_thresh %}text-emerald-400{% elif gap >= gap_thresh * 0.7 %}text-amber-400{% else %}text-red-400{% endif %}">
+            {{ "%+.1f"|format(gap) }}% / {{ gap_thresh }}%
+          </span>
+        </div>
+        <div class="h-1.5 bg-gray-800 rounded-full overflow-hidden">
+          <div class="h-full rounded-full transition-all {% if gap >= gap_thresh %}bg-emerald-500{% elif gap >= gap_thresh * 0.7 %}bg-amber-500{% else %}bg-red-500{% endif %}"
+               style="width: {{ gap_pct_fill }}%"></div>
+        </div>
+        {% if gap < gap_thresh %}
+        <p class="text-xs text-gray-600 mt-1">needs {{ "%.1f"|format(gap_thresh - gap) }}% more</p>
+        {% endif %}
+      </div>
+      {% endif %}
+
+      {% if vals.get('rvol') is not none %}
+      {% set rv = vals.rvol %}
+      {% set rv_thresh = thresholds.get('rvol', 2.0) %}
+      {% set rv_fill = [[(rv / rv_thresh * 100), 0]|max, 100]|min %}
+      <div class="bg-[#0c1020] rounded-lg p-2.5">
+        <div class="flex justify-between items-center mb-1.5">
+          <span class="text-xs text-gray-500 font-medium">RVOL</span>
+          <span class="text-xs font-mono font-bold {% if rv >= rv_thresh %}text-emerald-400{% elif rv >= rv_thresh * 0.7 %}text-amber-400{% else %}text-red-400{% endif %}">
+            {{ "%.1f"|format(rv) }}x / {{ rv_thresh }}x
+          </span>
+        </div>
+        <div class="h-1.5 bg-gray-800 rounded-full overflow-hidden">
+          <div class="h-full rounded-full {% if rv >= rv_thresh %}bg-emerald-500{% elif rv >= rv_thresh * 0.7 %}bg-amber-500{% else %}bg-red-500{% endif %}"
+               style="width: {{ rv_fill }}%"></div>
+        </div>
+        {% if rv < rv_thresh %}
+        <p class="text-xs text-gray-600 mt-1">needs {{ "%.1f"|format(rv_thresh - rv) }}x more</p>
+        {% endif %}
+      </div>
+      {% endif %}
+
+      {% if vals.get('sma200') is not none and vals.get('prev_close') is not none %}
+      {% set above = vals.prev_close > vals.sma200 %}
+      <div class="bg-[#0c1020] rounded-lg p-2.5">
+        <div class="flex justify-between items-center mb-1.5">
+          <span class="text-xs text-gray-500 font-medium">SMA 200</span>
+          <span class="text-xs font-mono font-bold {% if above %}text-emerald-400{% else %}text-red-400{% endif %}">
+            {% if above %}above{% else %}below{% endif %}
+          </span>
+        </div>
+        <div class="h-1.5 bg-gray-800 rounded-full overflow-hidden">
+          {% set sma_dist = ((vals.prev_close - vals.sma200) / vals.sma200 * 100) %}
+          <div class="h-full rounded-full {% if above %}bg-emerald-500{% else %}bg-red-500{% endif %}"
+               style="width: {% if above %}{{ [sma_dist * 5, 100]|min }}%{% else %}20%{% endif %}"></div>
+        </div>
+        <p class="text-xs text-gray-600 mt-1">
+          close ${{ "%.0f"|format(vals.prev_close) }} / SMA ${{ "%.0f"|format(vals.sma200) }}
+        </p>
+      </div>
+      {% endif %}
+
+      <!-- Filter badges -->
+      {% for fname, fval in filters.items() %}
+      <div class="bg-[#0c1020] rounded-lg p-2.5 flex items-center justify-between">
+        <span class="text-xs text-gray-500">{{ fname.replace('_', ' ') }}</span>
+        {% if fval %}
+          <span class="w-5 h-5 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 text-xs">✓</span>
+        {% else %}
+          <span class="w-5 h-5 rounded-full bg-red-500/20 border border-red-500/40 flex items-center justify-center text-red-400 text-xs">✗</span>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+
+    <!-- Reject reasons -->
+    {% if not outcome and s.get('reasons') %}
+    <div class="mt-2 flex flex-wrap gap-1">
+      {% for r in s.reasons %}
+      <span class="text-xs bg-red-500/10 border border-red-500/20 text-red-400 px-2 py-0.5 rounded-full">{{ r }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}

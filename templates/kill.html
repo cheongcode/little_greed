@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="max-w-lg mx-auto mt-8">
+  <div class="bg-gray-900 border border-red-800 rounded-lg p-6">
+    <h1 class="text-2xl font-bold text-red-400 mb-2">Kill Switch</h1>
+    <p class="text-gray-400 text-sm mb-4">
+      Cancels all open orders and market-sells every position immediately.
+      <strong class="text-white">{{ open_count }}</strong> position(s) currently open.
+    </p>
+
+    <!-- Confirmation input -->
+    <label class="block text-xs text-gray-500 uppercase tracking-wide mb-1">
+      Type <span class="text-red-400 font-mono font-bold">FLATTEN</span> to confirm
+    </label>
+    <input
+      id="confirm-input"
+      type="text"
+      autocomplete="off"
+      placeholder="FLATTEN"
+      class="w-full bg-gray-800 border border-gray-700 text-white rounded px-3 py-2 mb-4 font-mono focus:outline-none focus:border-red-600"
+      oninput="checkConfirm()"
+    />
+
+    <button
+      id="kill-btn"
+      disabled
+      onclick="doKill()"
+      class="w-full py-3 rounded font-bold text-lg transition
+             bg-gray-700 text-gray-500 cursor-not-allowed
+             disabled:bg-gray-700 disabled:text-gray-500
+             enabled:bg-red-600 enabled:hover:bg-red-700 enabled:text-white enabled:cursor-pointer"
+    >
+      FLATTEN EVERYTHING
+    </button>
+
+    <!-- Result banner (hidden until response) -->
+    <div id="kill-result" class="hidden mt-4 rounded px-4 py-3 text-sm font-medium"></div>
+  </div>
+</div>
+
+<script>
+  function checkConfirm() {
+    const val = document.getElementById('confirm-input').value;
+    const btn = document.getElementById('kill-btn');
+    const matches = val === 'FLATTEN';
+    btn.disabled = !matches;
+    btn.classList.toggle('bg-red-600', matches);
+    btn.classList.toggle('hover:bg-red-700', matches);
+    btn.classList.toggle('text-white', matches);
+    btn.classList.toggle('cursor-pointer', matches);
+    btn.classList.toggle('bg-gray-700', !matches);
+    btn.classList.toggle('text-gray-500', !matches);
+    btn.classList.toggle('cursor-not-allowed', !matches);
+  }
+
+  async function doKill() {
+    const btn = document.getElementById('kill-btn');
+    const result = document.getElementById('kill-result');
+    btn.disabled = true;
+    btn.textContent = 'Flattening…';
+
+    try {
+      const resp = await fetch('/kill', { method: 'POST' });
+      const data = await resp.json();
+      result.classList.remove('hidden', 'bg-green-900', 'text-green-300', 'bg-red-900', 'text-red-300');
+      if (data.ok) {
+        result.classList.add('bg-green-900', 'text-green-300');
+        result.textContent = `✓ Flattened ${data.killed} position(s), cancelled ${data.orders_cancelled} order(s).`;
+      } else {
+        result.classList.add('bg-red-900', 'text-red-300');
+        result.textContent = `✗ Error: ${data.error}`;
+      }
+    } catch (err) {
+      result.classList.remove('hidden');
+      result.classList.add('bg-red-900', 'text-red-300');
+      result.textContent = `✗ Network error: ${err}`;
+    }
+
+    btn.textContent = 'FLATTEN EVERYTHING';
+    document.getElementById('confirm-input').value = '';
+    checkConfirm();
+  }
+</script>
+
+{% endblock %}

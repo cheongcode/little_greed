@@ -1,0 +1,236 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="max-w-2xl mx-auto space-y-6">
+  <h1 class="text-2xl font-bold text-white">Settings</h1>
+
+  {% if error %}
+  <div class="bg-red-900/40 border border-red-700 text-red-300 rounded px-4 py-3 text-sm">⚠ {{ error }}</div>
+  {% endif %}
+  {% if success %}
+  <div class="bg-green-900/40 border border-green-700 text-green-300 rounded px-4 py-3 text-sm">
+    ✓ Saved. Changes take effect on the next cycle (max 5 min).
+  </div>
+  {% endif %}
+
+  <form method="post" action="/settings" class="space-y-6">
+
+    <!-- Section 1: Broker -->
+    <div class="bg-gray-900 border border-gray-800 rounded-lg p-5">
+      <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-4">Broker</h2>
+      <div class="space-y-4">
+
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">
+            IBKR Host
+          </label>
+          <input type="text" name="ibkr_host"
+            value="{{ env.get('IBKR_HOST', '127.0.0.1') }}"
+            class="w-full bg-gray-800 border {% if 'ibkr_host' in error_fields %}border-red-600{% else %}border-gray-700{% endif %} text-white rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"/>
+        </div>
+
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">
+            IBKR Port
+            <span class="text-gray-600 ml-1" title="7497=TWS paper, 4002=Gateway paper, 7496/4001=live">(?)</span>
+          </label>
+          <input type="number" name="ibkr_port"
+            value="{{ env.get('IBKR_PORT', '7497') }}"
+            class="w-full bg-gray-800 border {% if 'ibkr_port' in error_fields %}border-red-600{% else %}border-gray-700{% endif %} text-white rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"/>
+        </div>
+
+        <div class="flex items-center gap-3">
+          <input type="checkbox" name="paper_trading" id="paper_trading"
+            {% if env.get('PAPER_TRADING','true').lower() == 'true' %}checked{% endif %}
+            class="w-4 h-4 accent-blue-500"/>
+          <label for="paper_trading" class="text-sm text-gray-300">Paper Trading</label>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section 2: Risk -->
+    <div class="bg-gray-900 border border-gray-800 rounded-lg p-5">
+      <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-4">Risk</h2>
+      <div class="space-y-4">
+
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">
+            Portfolio Value (USD)
+            <span class="text-gray-600 ml-1" title="Your paper account starting balance in USD">(?)</span>
+          </label>
+          <input type="number" name="portfolio_value" step="100"
+            value="{{ env.get('PORTFOLIO_VALUE_USD', '25000') }}"
+            class="w-full bg-gray-800 border border-gray-700 text-white rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"/>
+        </div>
+
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">
+            Max Trade Size (USD)
+            <span class="text-gray-600 ml-1" title="Hard USD cap per position">(?)</span>
+          </label>
+          <input type="number" name="max_trade_size" step="100"
+            value="{{ env.get('MAX_TRADE_SIZE_USD', '2500') }}"
+            class="w-full bg-gray-800 border border-gray-700 text-white rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"/>
+        </div>
+
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">
+            Max Trades Per Day
+            <span class="text-gray-600 ml-1" title="Bot stops taking new entries after N buys">(?)</span>
+          </label>
+          <input type="number" name="max_trades_per_day" min="1" max="20"
+            value="{{ env.get('MAX_TRADES_PER_DAY', '5') }}"
+            class="w-full bg-gray-800 border border-gray-700 text-white rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"/>
+        </div>
+
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">
+            Max Risk Per Trade (%)
+            <span class="text-gray-600 ml-1" title="% of portfolio at risk per trade if stop hits (0.1–5.0)">(?)</span>
+          </label>
+          <input type="number" name="max_risk_pct" step="0.1" min="0.1" max="5.0"
+            value="{{ env.get('MAX_RISK_PER_TRADE_PCT', '1.0') }}"
+            class="w-full bg-gray-800 border {% if 'max_risk_pct' in error_fields %}border-red-600{% else %}border-gray-700{% endif %} text-white rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"/>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section 3: Strategy -->
+    <div class="bg-gray-900 border border-gray-800 rounded-lg p-5">
+      <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-4">Strategy</h2>
+      <div class="space-y-4">
+
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">
+            D3 Min Gap %
+            <span class="text-gray-600 ml-1" title="Minimum overnight gap to consider a stock (0.5–20.0)">(?)</span>
+          </label>
+          <input type="number" name="d3_min_gap" step="0.1" min="0.5" max="20"
+            value="{{ rules.get('daily_filters', {}).get('D3_min_gap_pct_from_prior_close', 3.0) }}"
+            class="w-full bg-gray-800 border {% if 'd3_min_gap' in error_fields %}border-red-600{% else %}border-gray-700{% endif %} text-white rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"/>
+        </div>
+
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">
+            I3 RVOL Threshold
+            <span class="text-gray-600 ml-1" title="How many times average volume required">(?)</span>
+          </label>
+          <input type="number" name="i3_rvol" step="0.1" min="0.5"
+            value="{{ rules.get('intraday_filters', {}).get('I3_rvol_min', 2.0) }}"
+            class="w-full bg-gray-800 border border-gray-700 text-white rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"/>
+        </div>
+
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">
+            Earliest Entry (ET)
+            <span class="text-gray-600 ml-1" title="No new entries before this time">(?)</span>
+          </label>
+          <input type="time" name="earliest_entry"
+            value="{{ rules.get('time_filter', {}).get('earliest_entry_et', '10:05') }}"
+            class="w-full bg-gray-800 border border-gray-700 text-white rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"/>
+        </div>
+
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">Latest Entry (ET)</label>
+          <input type="time" name="latest_entry"
+            value="{{ rules.get('time_filter', {}).get('latest_entry_et', '15:30') }}"
+            class="w-full bg-gray-800 border {% if 'latest_entry' in error_fields %}border-red-600{% else %}border-gray-700{% endif %} text-white rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"/>
+        </div>
+
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">
+            Force Close (ET)
+            <span class="text-gray-600 ml-1" title="Everything gets sold at this time">(?)</span>
+          </label>
+          <input type="time" name="force_close"
+            value="{{ rules.get('time_filter', {}).get('force_close_et', '15:51') }}"
+            class="w-full bg-gray-800 border {% if 'force_close' in error_fields %}border-red-600{% else %}border-gray-700{% endif %} text-white rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"/>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section 4: Notifications -->
+    <div class="bg-gray-900 border border-gray-800 rounded-lg p-5">
+      <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-4">Notifications</h2>
+      <div class="space-y-4">
+
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">Telegram Bot Token</label>
+          <div class="flex gap-2">
+            <input type="password" name="telegram_bot_token" placeholder="Leave blank to keep existing"
+              class="flex-1 bg-gray-800 border border-gray-700 text-white rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"/>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">Telegram Chat ID</label>
+          <div class="flex gap-2">
+            <input type="text" name="telegram_chat_id"
+              value="{{ env.get('TELEGRAM_CHAT_ID', '') }}"
+              class="flex-1 bg-gray-800 border border-gray-700 text-white rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"/>
+            <button type="button" onclick="testTelegram()"
+              class="px-3 py-2 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded transition whitespace-nowrap">
+              Send test
+            </button>
+          </div>
+          <p id="telegram-test-result" class="text-xs mt-1 hidden"></p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section 5: Strategy -->
+    <div class="bg-gray-900 border border-gray-800 rounded-lg p-5">
+      <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-1">Active Strategies</h2>
+      <p class="text-xs text-gray-600 mb-4">Check all strategies to run concurrently. Bot enters on the first that passes.</p>
+      <div class="space-y-2">
+        {% set active_list = rules.get('active_strategies', ['gap_and_go']) %}
+        {% for key, desc in strategies.items() %}
+        {% set is_active = key in active_list %}
+        {% set is_aggressive = '⚡' in desc %}
+        <label class="flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition
+          {% if is_active %}{% if is_aggressive %}border-amber-500/50 bg-amber-500/5{% else %}border-indigo-500/50 bg-indigo-500/5{% endif %}{% else %}border-gray-800 hover:border-gray-700{% endif %}">
+          <input type="checkbox" name="active_strategies" value="{{ key }}"
+            {% if is_active %}checked{% endif %}
+            class="mt-0.5 accent-indigo-500 w-4 h-4"/>
+          <div class="flex-1">
+            <div class="flex items-center gap-2">
+              <p class="text-sm font-semibold text-white">{{ key.replace('_', ' ').title() }}</p>
+              {% if is_aggressive %}<span class="text-xs bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded">AGGRESSIVE</span>{% endif %}
+            </div>
+            <p class="text-xs text-gray-500 mt-0.5">{{ desc }}</p>
+          </div>
+        </label>
+        {% endfor %}
+      </div>
+    </div>
+
+    <button type="submit"
+      class="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg transition">
+      Save Settings
+    </button>
+  </form>
+</div>
+
+<script>
+async function testTelegram() {
+  const el = document.getElementById('telegram-test-result');
+  el.classList.remove('hidden', 'text-green-400', 'text-red-400');
+  el.textContent = 'Sending…';
+  el.classList.add('text-gray-400');
+  try {
+    const resp = await fetch('/settings/test-telegram', { method: 'POST' });
+    const data = await resp.json();
+    el.classList.remove('text-gray-400');
+    if (data.ok) {
+      el.classList.add('text-green-400');
+      el.textContent = '✓ ' + data.message;
+    } else {
+      el.classList.add('text-red-400');
+      el.textContent = '✗ ' + data.message;
+    }
+  } catch (e) {
+    el.classList.add('text-red-400');
+    el.textContent = '✗ Network error';
+  }
+}
+</script>
+{% endblock %}
