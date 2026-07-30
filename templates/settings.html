@@ -203,6 +203,119 @@
       </div>
     </div>
 
+    <!-- Section 6: Risk Parameters -->
+    <div class="bg-gray-900 border border-gray-800 rounded-lg p-5">
+      <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-4">Risk Parameters</h2>
+      <div class="space-y-4">
+
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">
+            ATR Stop Multiplier
+            <span class="text-gray-600 ml-1" title="Stop distance = max(multiplier × ATR14, min_stop_pct × entry). Default: 1.2">(?)</span>
+          </label>
+          <input type="number" id="atr_stop_multiplier" name="atr_stop_multiplier"
+            step="0.1" min="0.5" max="5.0"
+            value="{{ rules.get('atr_stop_multiplier', 1.2) }}"
+            class="w-full bg-gray-800 border {% if 'atr_stop_multiplier' in error_fields %}border-red-600{% else %}border-gray-700{% endif %} text-white rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"/>
+          <p class="text-xs text-gray-600 mt-1">Stop distance = max(multiplier × ATR14, min_stop_pct × entry). Default: 1.2</p>
+        </div>
+
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">
+            Min Stop % (decimal)
+            <span class="text-gray-600 ml-1" title="Minimum stop distance as decimal (0.005 = 0.5%). Default: 0.005">(?)</span>
+          </label>
+          <input type="number" id="min_stop_pct" name="min_stop_pct"
+            step="0.001" min="0.001" max="0.05"
+            value="{{ rules.get('min_stop_pct', 0.005) }}"
+            class="w-full bg-gray-800 border {% if 'min_stop_pct' in error_fields %}border-red-600{% else %}border-gray-700{% endif %} text-white rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"/>
+          <p class="text-xs text-gray-600 mt-1">Minimum stop distance as decimal (0.005 = 0.5%). Default: 0.005</p>
+        </div>
+
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">
+            Max Stop % (decimal)
+            <span class="text-gray-600 ml-1" title="Maximum stop distance as decimal (0.025 = 2.5%). Default: 0.025">(?)</span>
+          </label>
+          <input type="number" id="max_stop_pct" name="max_stop_pct"
+            step="0.001" min="0.005" max="0.10"
+            value="{{ rules.get('max_stop_pct', 0.025) }}"
+            class="w-full bg-gray-800 border {% if 'max_stop_pct' in error_fields %}border-red-600{% else %}border-gray-700{% endif %} text-white rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"/>
+          <p class="text-xs text-gray-600 mt-1">Maximum stop distance as decimal (0.025 = 2.5%). Default: 0.025</p>
+        </div>
+
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">
+            Chandelier Exit Multiplier
+            <span class="text-gray-600 ml-1" title="Chandelier = highest_high_since_entry − multiplier × ATR14. Default: 3.0">(?)</span>
+          </label>
+          <input type="number" id="chandelier_atr_multiplier" name="chandelier_atr_multiplier"
+            step="0.5" min="1.0" max="10.0"
+            value="{{ rules.get('chandelier_atr_multiplier', 3.0) }}"
+            class="w-full bg-gray-800 border {% if 'chandelier_atr_multiplier' in error_fields %}border-red-600{% else %}border-gray-700{% endif %} text-white rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"/>
+          <p class="text-xs text-gray-600 mt-1">Chandelier = highest_high_since_entry − multiplier × ATR14. Default: 3.0</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section 7: Exit Levels (read-only) -->
+    <div class="bg-gray-900 border border-gray-800 rounded-lg p-5">
+      <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-2">Exit Levels (read-only)</h2>
+      <p class="text-xs text-gray-600 mb-4">
+        Partial exit schedule: sell 25% at +0.75R (stop→entry−0.25R),
+        25% at +1.5R (stop→breakeven), 25% at +2.5R (start Chandelier trail),
+        runner trails until 15:51.
+      </p>
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-xs text-gray-500 uppercase border-b border-gray-800">
+            <th class="text-left py-2 pr-4">R Multiple</th>
+            <th class="text-left py-2 pr-4">Sell %</th>
+            <th class="text-left py-2">Stop Action</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-800">
+          {% for level in rules.get('partial_exit_levels', []) %}
+          <tr class="text-gray-300">
+            <td class="py-2 pr-4">+{{ level.r_multiple }}R</td>
+            <td class="py-2 pr-4">{{ (level.sell_pct * 100)|int }}%</td>
+            <td class="py-2 text-gray-500">{{ level.move_stop_to }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Section 8: Strategy Automation -->
+    <div class="bg-gray-900 border border-gray-800 rounded-lg p-5">
+      <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-4">Strategy Automation</h2>
+      <div class="space-y-4">
+
+        <div>
+          <label class="flex items-center gap-3 cursor-pointer">
+            <input type="checkbox" id="auto_disable_negative_expectancy"
+              name="auto_disable_negative_expectancy" value="true"
+              {% if rules.get('auto_disable_negative_expectancy') %}checked{% endif %}
+              class="w-4 h-4 accent-indigo-500"/>
+            <span class="text-sm text-gray-300">Auto-disable strategies with negative expectancy</span>
+          </label>
+          <p class="text-xs text-gray-600 mt-1 ml-7">Requires min_trades_before_disable closed trades before disabling.</p>
+        </div>
+
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">
+            Min Trades Before Auto-Disable
+            <span class="text-gray-600 ml-1" title="Won't disable a strategy until this many trades are logged. Default: 30">(?)</span>
+          </label>
+          <input type="number" id="min_trades_before_disable" name="min_trades_before_disable"
+            step="1" min="5" max="200"
+            value="{{ rules.get('min_trades_before_disable', 30) }}"
+            class="w-full bg-gray-800 border {% if 'min_trades_before_disable' in error_fields %}border-red-600{% else %}border-gray-700{% endif %} text-white rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500"/>
+          <p class="text-xs text-gray-600 mt-1">Default: 30. Won't disable a strategy until this many trades are logged.</p>
+        </div>
+      </div>
+    </div>
+
     <button type="submit"
       class="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg transition">
       Save Settings

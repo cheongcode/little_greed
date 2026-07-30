@@ -1,12 +1,15 @@
 import argparse
 import json
+import os
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
+from statistics import mean
 from zoneinfo import ZoneInfo
 
-import yfinance as yf
+from ib_async import IB, Stock
+from src.universe import get_combined_universe
 from src.sp500_tickers import SP500_TICKERS
 from src.notify import notify
 
@@ -14,21 +17,9 @@ from src.notify import notify
 WATCHLIST_PATH = Path("watchlist.txt")
 DEFAULT_MIN_GAP_PCT = 3.0
 DEFAULT_MIN_PRICE = 3.0
-MAX_SURVIVORS = 20
+MAX_SURVIVORS = 40
 ET = ZoneInfo("America/New_York")
-
-
-def convert_to_yahoo_format(tickers):
-    """Convert IBKR format to Yahoo format."""
-    yahoo_tickers = []
-    for ticker in tickers:
-        if ticker.endswith(" B"):
-            yahoo_tickers.append(ticker.replace(" B", "-B"))
-        elif ticker.endswith(" A"):
-            yahoo_tickers.append(ticker.replace(" A", "-A"))
-        else:
-            yahoo_tickers.append(ticker)
-    return yahoo_tickers
+MIN_AVG_DOLLAR_VOL = 10_000_000
 
 
 def main():
@@ -40,59 +31,61 @@ def main():
 
     start_time = time.time()
 
-    # Convert tickers to Yahoo format
-    yahoo_tickers = convert_to_yahoo_format(SP500_TICKERS)
-
-    # Download data
+    # Connect to IBKR
+    ib = IB()
+    client_id = int(os.getenv("IBKR_CLIENT_ID_PREFILTER", "3"))
     try:
-        data = yf.download(
-            tickers=" ".join(yahoo_tickers),
-            period="2d",
-            interval="1d",
-            group_by="ticker",
-            threads=5,
-            progress=False,
-            auto_adjust=True,
+        ib.connect(
+            os.getenv("IBKR_HOST", "127.0.0.1"),
+            int(os.getenv("IBKR_PORT", "7497")),
+            clientId=client_id,
         )
     except Exception as e:
-        error_result = {
-            "success": False,
-            "total_screened": len(SP500_TICKERS),
-            "survivors_count": 0,
-            "below_gap": 0,
-            "below_price": 0,
-            "failed": len(SP500_TICKERS),
-            "elapsed_seconds": time.time() - start_time,
-            "top_20_survivors": [],
-            "watchlist_path": str(WATCHLIST_PATH),
-        }
-        print(json.dumps(error_result))
+        print(f"ERROR: Could not connect to IBKR: {e}", file=sys.stderr)
         sys.exit(1)
 
-    # Evaluate survivors
+    universe = get_combined_universe()
+    sp500_set = set(SP500_TICKERS)
+
     survivors = []
     below_gap = 0
     below_price = 0
+    below_dollar_vol = 0
     failed = 0
 
-    for i, ticker in enumerate(SP500_TICKERS):
-        yahoo_ticker = yahoo_tickers[i]
+    for ticker in universe:
+        contract = Stock(ticker, "SMART", "USD")
+        try:
+            ib.qualifyContracts(contract)
+        except Exception:
+            failed += 1
+            continue
 
         try:
-            if yahoo_ticker not in data:
-                failed += 1
-                continue
+            bars = ib.reqHistoricalData(
+                contract,
+                endDateTime="",
+                durationStr="3 D",
+                barSizeSetting="1 day",
+                whatToShow="TRADES",
+                useRTH=True,
+                keepUpToDate=False,
+            )
+            time.sleep(0.05)
+        except Exception:
+            failed += 1
+            continue
 
-            bars = data[yahoo_ticker]
-            if len(bars) < 2:
-                failed += 1
-                continue
+        if not bars or len(bars) < 2:
+            failed += 1
+            continue
 
-            yesterday_close = bars.iloc[-2]["Close"]
-            today_open = bars.iloc[-1]["Open"]
-            today_close = bars.iloc[-1]["Close"]
-            today_high = bars.iloc[-1]["High"]
-            today_low = bars.iloc[-1]["Low"]
+        try:
+            yesterday_close = bars[-2].close
+            today_open = bars[-1].open
+            today_close = bars[-1].close
+            today_high = bars[-1].high
+            today_low = bars[-1].low
 
             gap_pct = (today_close - yesterday_close) / yesterday_close * 100
 
@@ -103,6 +96,16 @@ def main():
             if gap_pct < args.min_gap:
                 below_gap += 1
                 continue
+
+            # Liquidity filter: skip for S&P 500 names (already liquid)
+            if ticker not in sp500_set:
+                recent_bars = bars[-20:] if len(bars) >= 20 else bars
+                dollar_vols = [b.close * b.volume for b in recent_bars if b.volume > 0]
+                if dollar_vols:
+                    avg_dollar_vol = mean(dollar_vols)
+                    if avg_dollar_vol < MIN_AVG_DOLLAR_VOL:
+                        below_dollar_vol += 1
+                        continue
 
             survivors.append(
                 {
@@ -116,25 +119,21 @@ def main():
                 }
             )
 
-        except (KeyError, IndexError, ValueError):
+        except (AttributeError, IndexError, ValueError, ZeroDivisionError):
             failed += 1
             continue
+
+    # Disconnect IBKR before writing watchlist
+    try:
+        ib.disconnect()
+    except Exception:
+        pass
 
     # Sort by gap_pct descending and cap at MAX_SURVIVORS
     survivors.sort(key=lambda x: x["gap_pct"], reverse=True)
     survivors = survivors[:MAX_SURVIVORS]
 
-    # Check degradation tripwires
     elapsed = time.time() - start_time
-    degradation_alert = None
-    if len(SP500_TICKERS) > 0:
-        fail_ratio = failed / len(SP500_TICKERS)
-        if fail_ratio >= 0.95:
-            degradation_alert = "ALERT: Yahoo-wide failure suspected; check yfinance changelog"
-            print(degradation_alert, file=sys.stderr)
-        elif fail_ratio >= 0.30:
-            degradation_alert = f"ALERT: yfinance degradation (failed {failed}/{len(SP500_TICKERS)})"
-            print(degradation_alert, file=sys.stderr)
 
     # Write watchlist if not dry-run
     if not args.dry_run:
@@ -144,8 +143,8 @@ def main():
         with open(WATCHLIST_PATH, "w") as f:
             f.write(f"# Auto-generated by morning_prefilter.py at {timestamp}\n")
             f.write(f"# Filters: gap >= {args.min_gap}%, price >= ${args.min_price}\n")
-            f.write("# Source: yfinance (screening only); IBKR handles execution\n")
-            f.write(f"# Survivors: {len(survivors)} (capped at {MAX_SURVIVORS}) of {len(SP500_TICKERS)}\n")
+            f.write("# Source: IBKR (prefilter); earnings check not implemented\n")
+            f.write(f"# Survivors: {len(survivors)} (capped at {MAX_SURVIVORS}) of {len(universe)}\n")
             f.write("#\n")
             f.write("# ticker  # gap +X.XX%  open $X.XX  prev $X.XX\n")
 
@@ -154,17 +153,18 @@ def main():
                 f.write(f"{s['ticker']}  # gap {gap_str}%  open ${s['open']:.2f}  prev ${s['prev_close']:.2f}\n")
 
     # Output JSON summary
-    top_20_strings = [f"{s['ticker']} (+{s['gap_pct']:.2f}%)" for s in survivors]
+    top_survivors_strings = [f"{s['ticker']} (+{s['gap_pct']:.2f}%)" for s in survivors]
 
     result = {
         "success": True,
-        "total_screened": len(SP500_TICKERS),
+        "total_screened": len(universe),
         "survivors_count": len(survivors),
         "below_gap": below_gap,
         "below_price": below_price,
+        "below_dollar_vol": below_dollar_vol,
         "failed": failed,
         "elapsed_seconds": elapsed,
-        "top_20_survivors": top_20_strings,
+        "top_20_survivors": top_survivors_strings,
         "watchlist_path": str(WATCHLIST_PATH),
     }
 
@@ -173,12 +173,10 @@ def main():
     if not args.dry_run:
         now = datetime.now(ET)
         hhmm = now.strftime("%H:%M ET")
-        if degradation_alert:
-            notify(f"Prefilter DEGRADED {hhmm}", degradation_alert, "high")
-        bullet_list = "\n".join(f"• {s}" for s in top_20_strings)
+        bullet_list = "\n".join(f"• {s}" for s in top_survivors_strings)
         notify(
             f"Prefilter {hhmm}",
-            f"{len(survivors)}/{len(SP500_TICKERS)} survivors in {elapsed:.1f}s\n{bullet_list}",
+            f"{len(survivors)}/{len(universe)} survivors in {elapsed:.1f}s\n{bullet_list}",
             "default",
         )
 

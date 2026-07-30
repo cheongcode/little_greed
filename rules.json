@@ -40,9 +40,28 @@
   },
   "strategy_name_key": "gap_and_go",
   "active_strategies": [
+    "noise_area",
     "gap_and_go",
+    "orb_15",
+    "vwap_reclaim",
+    "hod_break",
     "volume_spike",
     "momentum_15",
     "trend_rider"
-  ]
+  ],
+  "auto_disable_negative_expectancy": false,
+  "min_trades_before_disable": 30,
+  "strategy_priority_order": [
+    "noise_area", "gap_and_go", "orb_15", "vwap_reclaim",
+    "hod_break", "momentum_15", "volume_spike", "trend_rider"
+  ],
+  "atr_stop_multiplier": 1.2,
+  "min_stop_pct": 0.005,
+  "max_stop_pct": 0.025,
+  "partial_exit_levels": [
+    {"r_multiple": 0.75, "sell_pct": 0.25, "move_stop_to": "entry_minus_0.25R"},
+    {"r_multiple": 1.5,  "sell_pct": 0.25, "move_stop_to": "breakeven"},
+    {"r_multiple": 2.5,  "sell_pct": 0.25, "move_stop_to": "chandelier"}
+  ],
+  "chandelier_atr_multiplier": 3.0
 }

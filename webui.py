@@ -88,6 +88,35 @@ def _read_today_pnl() -> float:
     return total
 
 
+def _read_today_stats() -> dict:
+    """Read today's win/loss counts from trade_journal.jsonl."""
+    today = datetime.now(ET).date().isoformat()
+    path = Path("logs/trade_journal.jsonl")
+    wins, losses = 0, 0
+    if path.exists():
+        try:
+            for line in path.read_text().strip().splitlines():
+                try:
+                    obj = json.loads(line)
+                    if (obj.get("ts", "")[:10] == today and
+                            obj.get("event") in ("exit_stop", "exit_eod")):
+                        if float(obj.get("pnl", 0)) > 0:
+                            wins += 1
+                        else:
+                            losses += 1
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    total = wins + losses
+    return {
+        "wins": wins,
+        "losses": losses,
+        "total": total,
+        "win_rate": round(wins / total * 100) if total > 0 else None,
+    }
+
+
 def _fetch_prices_sync(symbols: list, client_id: int, timeout_s: int = 3) -> tuple:
     if not symbols:
         return {}, True
@@ -116,7 +145,7 @@ def _fetch_prices_sync(symbols: list, client_id: int, timeout_s: int = 3) -> tup
 
 
 def _get_yf_prices(symbols: list) -> dict:
-    """Fetch last prices via yfinance (market hours = last trade, AH = close)."""
+    """Fallback price fetch via yfinance when IBKR connection unavailable."""
     if not symbols:
         return {}
     prices = {}
@@ -173,6 +202,9 @@ def _build_positions_data() -> dict:
             "stop": stop, "dist_stop_pct": dist_stop_pct,
             "hold_mins": hold_mins, "near_stop": 0 <= dist_stop_pct < 0.5,
             "r_multiple": r_multiple,
+            "state": pos.get("state", "initial"),
+            "strategy": pos.get("strategy", ""),
+            "R": pos.get("R", 0),
         })
     return {"positions": enriched, "ibkr_ok": ibkr_ok, "now": now_et}
 
@@ -606,12 +638,23 @@ async def dashboard(request: Request):
     except Exception:
         pass
     active_strategies = rules.get("active_strategies", ["gap_and_go"])
+    today_stats = _read_today_stats()
+    # Latest nightly report
+    latest_report_date = None
+    try:
+        reports = sorted(Path("reports").glob("*.md"), reverse=True)
+        if reports:
+            latest_report_date = reports[0].stem
+    except Exception:
+        pass
     return templates.TemplateResponse(request, "dashboard.html", {
         "last_cycle": last_cycle,
         "last_cycle_age_min": last_cycle_age_min,
         "today_pnl": today_pnl,
         "open_count": len(positions),
         "active_strategies": active_strategies,
+        "today_stats": today_stats,
+        "latest_report_date": latest_report_date,
     })
 
 
@@ -683,26 +726,44 @@ async def dashboard_live_scan(request: Request):
 
 @app.get("/dashboard/activity", response_class=HTMLResponse)
 async def dashboard_activity(request: Request):
-    """Live activity feed from safety-check-log.json + trades.csv."""
+    """Live activity feed — trade_journal.jsonl first, then safety-check-log fallback."""
     events = []
 
-    # Read safety-check-log.json
+    # Primary: trade_journal.jsonl (strategy-tagged, most accurate)
+    journal = Path("logs/trade_journal.jsonl")
+    if journal.exists():
+        try:
+            for line in journal.read_text().strip().splitlines()[-60:]:
+                try:
+                    obj = json.loads(line)
+                    ts = obj.get("ts", "")
+                    ev = obj.get("event", "")
+                    atype = {"entry": "fill_buy", "exit_stop": "fill_sell",
+                             "exit_eod": "fill_sell", "partial": "fill_sell"}.get(ev, ev)
+                    if ts:
+                        events.append({"ts": ts, "type": atype, "data": obj})
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    # Secondary: safety-check-log for stop/breakeven/trail events
     log = Path("safety-check-log.json")
     if log.exists():
         try:
-            for line in log.read_text().strip().splitlines()[-50:]:
+            for line in log.read_text().strip().splitlines()[-80:]:
                 try:
                     obj = json.loads(line)
                     action = obj.get("action", obj.get("event", ""))
                     ts = obj.get("ts", "")
-                    if ts:
+                    if ts and action not in ("cycle_heartbeat",):
                         events.append({"ts": ts, "type": action, "data": obj})
                 except Exception:
                     pass
         except Exception:
             pass
 
-    # Read trades.csv for recent fills
+    # Tertiary: trades.csv fills not in journal
     trades_path = Path("trades.csv")
     if trades_path.exists():
         try:
@@ -715,13 +776,37 @@ async def dashboard_activity(request: Request):
         except Exception:
             pass
 
-    # Sort by timestamp descending, cap at 40
+    # Sort newest first, dedupe by ts+type, cap at 50
     events.sort(key=lambda x: x["ts"], reverse=True)
-    events = events[:40]
-
+    seen = set()
+    deduped = []
+    for e in events:
+        key = (e["ts"][:16], e["type"], e["data"].get("symbol", ""))
+        if key not in seen:
+            seen.add(key)
+            deduped.append(e)
     return templates.TemplateResponse(request, "_activity_feed.html", {
-        "events": events,
+        "events": deduped[:50],
     })
+
+
+@app.get("/dashboard/journal")
+async def dashboard_journal():
+    """Return trade journal as JSON for the journal table."""
+    journal = Path("logs/trade_journal.jsonl")
+    entries = []
+    if journal.exists():
+        try:
+            for line in reversed(journal.read_text().strip().splitlines()):
+                try:
+                    entries.append(json.loads(line))
+                    if len(entries) >= 100:
+                        break
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    return JSONResponse(entries)
 
 
 @app.get("/dashboard/position-chart")
@@ -784,6 +869,38 @@ async def dashboard_chart_data():
         running += daily[d]
         cumulative.append(round(running, 2))
     return JSONResponse({"labels": sorted_days, "values": cumulative})
+
+
+@app.get("/api/pnl")
+async def api_pnl():
+    """Realized P&L from trades.csv + unrealized from open positions (yfinance prices)."""
+    realized = _read_today_pnl()
+    positions = _read_positions()
+    unrealized = 0.0
+    if positions:
+        symbols = [p["symbol"] for p in positions]
+        prices = _get_yf_prices(symbols)
+        for pos in positions:
+            current = prices.get(pos["symbol"], 0)
+            if current:
+                unrealized += (current - pos.get("entry_price", 0)) * pos.get("qty", 0)
+    return JSONResponse({
+        "realized": round(realized, 2),
+        "unrealized": round(unrealized, 2),
+        "total": round(realized + unrealized, 2),
+    })
+
+
+@app.get("/reports/latest", response_class=PlainTextResponse)
+async def reports_latest():
+    """Serve the latest nightly report as plain text markdown."""
+    try:
+        reports = sorted(Path("reports").glob("*.md"), reverse=True)
+        if not reports:
+            return PlainTextResponse("No reports generated yet. First report runs at 16:30 ET.", status_code=404)
+        return PlainTextResponse(reports[0].read_text())
+    except Exception as exc:
+        return PlainTextResponse(f"Error reading report: {exc}", status_code=500)
 
 
 @app.get("/dashboard/trades")
@@ -883,6 +1000,12 @@ async def settings_post(
     telegram_bot_token: str = Form(default=""),
     telegram_chat_id: str = Form(default=""),
     strategy_name_key: str = Form(default="gap_and_go"),
+    atr_stop_multiplier: float = Form(default=1.2),
+    min_stop_pct: float = Form(default=0.005),
+    max_stop_pct: float = Form(default=0.025),
+    chandelier_atr_multiplier: float = Form(default=3.0),
+    auto_disable_negative_expectancy: str = Form(default="false"),
+    min_trades_before_disable: int = Form(default=30),
 ):
     # active_strategies is a multi-value checkbox field — read from raw form
     form_data = await request.form()
@@ -922,6 +1045,22 @@ async def settings_post(
         errors.append("Force close time must be after latest entry time.")
         error_fields += ["force_close", "latest_entry"]
 
+    if not (0.5 <= atr_stop_multiplier <= 5.0):
+        errors.append("ATR stop multiplier must be between 0.5 and 5.0.")
+        error_fields.append("atr_stop_multiplier")
+    if not (0.001 <= min_stop_pct <= 0.05):
+        errors.append("Min stop % must be between 0.1% and 5%.")
+        error_fields.append("min_stop_pct")
+    if not (min_stop_pct < max_stop_pct <= 0.10):
+        errors.append("Max stop % must be greater than min stop % and at most 10%.")
+        error_fields.append("max_stop_pct")
+    if not (1.0 <= chandelier_atr_multiplier <= 10.0):
+        errors.append("Chandelier ATR multiplier must be between 1.0 and 10.0.")
+        error_fields.append("chandelier_atr_multiplier")
+    if not (5 <= min_trades_before_disable <= 200):
+        errors.append("Min trades before disable must be between 5 and 200.")
+        error_fields.append("min_trades_before_disable")
+
     from strategy import list_strategies
     if errors:
         return templates.TemplateResponse(request, "settings.html", {
@@ -960,6 +1099,13 @@ async def settings_post(
     })
     rules["strategy_name_key"] = strategy_name_key
     rules["active_strategies"] = active_strategies
+    auto_disable = auto_disable_negative_expectancy.lower() in ("on", "true", "1", "yes")
+    rules["atr_stop_multiplier"] = atr_stop_multiplier
+    rules["min_stop_pct"] = min_stop_pct
+    rules["max_stop_pct"] = max_stop_pct
+    rules["chandelier_atr_multiplier"] = chandelier_atr_multiplier
+    rules["auto_disable_negative_expectancy"] = auto_disable
+    rules["min_trades_before_disable"] = min_trades_before_disable
     _write_rules_file(rules)
 
     # Re-read fresh

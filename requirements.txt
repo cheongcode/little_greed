@@ -4,3 +4,9 @@ pandas
 numpy
 yfinance
 requests
+apscheduler
+fastapi
+uvicorn[standard]
+jinja2
+python-multipart
+lxml

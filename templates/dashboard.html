@@ -2,7 +2,7 @@
 {% block content %}
 
 <!-- ── Top stat bar ───────────────────────────────────────────── -->
-<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+<div class="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
 
   <div class="stat-card p-4">
     <p class="text-xs text-gray-500 uppercase tracking-widest mb-1">Bot Status</p>
@@ -31,10 +31,10 @@
 
   <div class="stat-card p-4">
     <p class="text-xs text-gray-500 uppercase tracking-widest mb-1">Today P&L</p>
-    <p class="text-2xl font-black {% if today_pnl >= 0 %}text-emerald-400{% else %}text-red-400{% endif %}">
+    <p id="pnl-total" class="text-2xl font-black {% if today_pnl >= 0 %}text-emerald-400{% else %}text-red-400{% endif %}">
       ${{ "%+.2f"|format(today_pnl) }}
     </p>
-    <p class="text-xs text-gray-600 mt-1">realized only</p>
+    <p id="pnl-detail" class="text-xs text-gray-600 mt-1">realized only</p>
   </div>
 
   <div class="stat-card p-4">
@@ -43,14 +43,38 @@
       <div class="flex items-center gap-1.5 text-xs text-gray-400"><span class="w-1.5 h-1.5 rounded-full bg-indigo-400 shrink-0"></span>Prefilter: 9:25 & 9:55 ET</div>
       <div class="flex items-center gap-1.5 text-xs text-gray-400"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0"></span>Cycle: every 5 min</div>
       <div class="flex items-center gap-1.5 text-xs text-gray-400"><span class="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0"></span>Force close: 15:51 ET</div>
+      <div class="flex items-center gap-1.5 text-xs text-gray-400"><span class="w-1.5 h-1.5 rounded-full bg-purple-400 shrink-0"></span>Report: 16:30 ET</div>
     </div>
+  </div>
+
+  <div class="stat-card p-4">
+    <p class="text-xs text-gray-500 uppercase tracking-widest mb-1">Today</p>
+    {% if today_stats.total > 0 %}
+    <div class="flex items-baseline gap-1.5">
+      <p class="text-2xl font-black {% if today_stats.win_rate >= 50 %}text-emerald-400{% else %}text-red-400{% endif %}">
+        {{ today_stats.win_rate }}%
+      </p>
+      <p class="text-xs text-gray-500">win rate</p>
+    </div>
+    <p class="text-xs text-gray-600 mt-1">{{ today_stats.wins }}W / {{ today_stats.losses }}L ({{ today_stats.total }} closed)</p>
+    {% else %}
+    <p class="text-xl font-black text-gray-600">--</p>
+    <p class="text-xs text-gray-700 mt-1">no closed trades yet</p>
+    {% endif %}
+    {% if latest_report_date %}
+    <a href="/reports/latest" target="_blank"
+       class="mt-2 inline-flex items-center gap-1 text-xs text-purple-400 hover:text-purple-300 transition">
+      <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+      Report {{ latest_report_date }}
+    </a>
+    {% endif %}
   </div>
 </div>
 
 <!-- ── Active strategies bar ──────────────────────────────────── -->
 <div class="card px-4 py-2.5 mb-4 flex flex-wrap items-center gap-2">
   <span class="text-xs text-gray-500 mr-1">Active:</span>
-  {% set strat_colors = {'gap_and_go':'indigo','orb_15':'blue','vwap_reclaim':'teal','hod_break':'purple','volume_spike':'amber','momentum_15':'orange','trend_rider':'rose'} %}
+  {% set strat_colors = {'noise_area':'violet','gap_and_go':'indigo','orb_15':'blue','vwap_reclaim':'teal','hod_break':'purple','volume_spike':'amber','momentum_15':'orange','trend_rider':'rose'} %}
   {% for s in active_strategies %}
   {% set c = strat_colors.get(s, 'gray') %}
   <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-{{ c }}-500/15 text-{{ c }}-400 border border-{{ c }}-500/30">
@@ -150,12 +174,12 @@
     <table class="w-full text-sm">
       <thead class="text-xs text-gray-500 uppercase border-b border-[#1e2533]">
         <tr>
-          <th class="py-2 pr-4 text-left">Time (UTC)</th>
+          <th class="py-2 pr-4 text-left">Time (ET)</th>
           <th class="py-2 pr-4 text-left">Symbol</th>
           <th class="py-2 pr-4 text-left">Side</th>
           <th class="py-2 pr-3 text-right">Qty</th>
           <th class="py-2 pr-3 text-right">Fill $</th>
-          <th class="py-2 pr-3 text-right">Order ID</th>
+          <th class="py-2 pr-3 text-right">R/shr</th>
           <th class="py-2 text-left">Status</th>
         </tr>
       </thead>
@@ -258,17 +282,19 @@ async function loadTrades(){
   tbody.innerHTML=[...rows].reverse().map(r=>{
     const buy=r.side==='BUY',fill=parseFloat(r.fill_price||0);
     const ts=(r.timestamp_iso||'--').replace('T',' ').slice(0,19);
+    const rps=parseFloat(r.R_per_share||0);
+    const rpsStr=rps>0?'$'+rps.toFixed(3):'--';
     return `<tr class="hover:bg-[#1a2035] transition">
       <td class="py-2 pr-4 font-mono text-xs text-gray-500">${ts}</td>
       <td class="py-2 pr-4"><a href="https://finance.yahoo.com/quote/${r.symbol}" target="_blank"
-         class="font-bold text-white hover:text-indigo-400 transition font-mono">${r.symbol}</a></td>
+         class="font-bold text-white hover:text-indigo-400 transition font-mono">${r.symbol||'--'}</a></td>
       <td class="py-2 pr-4"><span class="px-2 py-0.5 rounded-full text-xs font-bold border ${buy
         ?'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
         :'bg-red-500/15 text-red-400 border-red-500/30'}">${r.side}</span></td>
       <td class="py-2 pr-3 text-right font-mono text-gray-300">${r.size}</td>
       <td class="py-2 pr-3 text-right font-mono text-gray-200">${fill>0?'$'+fill.toFixed(2):'--'}</td>
-      <td class="py-2 pr-3 text-right font-mono text-xs text-gray-600">${r.order_id}</td>
-      <td class="py-2 text-xs font-medium ${r.status==='Filled'?'text-emerald-400':r.status==='PendingSubmit'?'text-amber-400':'text-gray-500'}">${r.status}</td>
+      <td class="py-2 pr-3 text-right font-mono text-xs text-gray-500">${rpsStr}</td>
+      <td class="py-2 text-xs font-medium ${r.status==='Filled'?'text-emerald-400':r.status==='PendingSubmit'?'text-amber-400':'text-gray-500'}">${r.status||'--'}</td>
     </tr>`;
   }).join('');
 }
@@ -287,9 +313,27 @@ async function runLiveScan(){
   btn.innerHTML=`<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg> Scan Now`;
 }
 
-loadPnl();loadPositionCharts();loadTrades();
+// ── Live P&L card ─────────────────────────────────────────────
+async function refreshPnlCard(){
+  try{
+    const d=await fetch('/api/pnl').then(r=>r.json());
+    const el=document.getElementById('pnl-total');
+    const lbl=document.getElementById('pnl-detail');
+    if(el){
+      el.textContent=(d.total>=0?'+':'')+'$'+d.total.toFixed(2);
+      el.className='text-2xl font-black '+(d.total>=0?'text-emerald-400':'text-red-400');
+    }
+    if(lbl){
+      const rsign=d.realized>=0?'+':'', usign=d.unrealized>=0?'+':'';
+      lbl.textContent=`R:${rsign}$${d.realized.toFixed(2)}  U:${usign}$${d.unrealized.toFixed(2)}`;
+    }
+  }catch(e){}
+}
+
+loadPnl();loadPositionCharts();loadTrades();refreshPnlCard();
 setInterval(loadPnl,30000);
 setInterval(loadPositionCharts,10000);
 setInterval(loadTrades,8000);
+setInterval(refreshPnlCard,30000);
 </script>
 {% endblock %}

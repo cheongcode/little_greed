@@ -85,6 +85,7 @@ def main():
     import cycle
     import compute_perf
     import rotate_logs
+    import nightly_report
 
     scheduler = BlockingScheduler(timezone=ET)
 
@@ -122,6 +123,18 @@ def main():
         id="run_dashboard",
     )
 
+    # run_nightly_report: mon-fri at 16:30 ET
+    scheduler.add_job(
+        _safe_job("run_nightly_report", nightly_report.main),
+        trigger="cron",
+        day_of_week="mon-fri",
+        hour=16,
+        minute=30,
+        misfire_grace_time=120,
+        max_instances=1,
+        id="run_nightly_report",
+    )
+
     # run_rotate: daily at 09:25 ET
     scheduler.add_job(
         _safe_job("run_rotate", rotate_logs.main),
@@ -141,6 +154,10 @@ def main():
 
     signal.signal(signal.SIGINT, _shutdown)
     signal.signal(signal.SIGTERM, _shutdown)
+
+    # Ensure reports directory exists
+    reports_dir = Path("reports")
+    reports_dir.mkdir(exist_ok=True)
 
     # Print banner
     now = datetime.now(ET).strftime("%Y-%m-%d %H:%M:%S ET")

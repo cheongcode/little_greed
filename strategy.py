@@ -8,8 +8,6 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-import yfinance as yf
-
 ET = ZoneInfo("America/New_York")
 LOGS_DIR = Path("logs")
 
@@ -28,7 +26,7 @@ def _log_result(result: dict):
 
 
 def _get_price(ib, symbol: str) -> float:
-    """Get live price via IBKR, fall back to yfinance last close."""
+    """Get live price via IBKR ticker."""
     try:
         from ib_async import Stock
         contract = Stock(symbol, "SMART", "USD")
@@ -40,24 +38,34 @@ def _get_price(ib, symbol: str) -> float:
             return float(price)
     except Exception:
         pass
-    # yfinance fallback
-    try:
-        hist = yf.Ticker(symbol.replace(" B", "-B").replace(" A", "-A")).history(period="2d", interval="1d")
-        if not hist.empty:
-            return float(hist["Close"].iloc[-1])
-    except Exception:
-        pass
     return 0.0
 
 
-def _get_daily_bars(symbol: str, days: int = 60):
-    yahoo_sym = symbol.replace(" B", "-B").replace(" A", "-A")
-    return yf.Ticker(yahoo_sym).history(period=f"{days}d", interval="1d")
+def _get_daily_bars(symbol: str, days: int = 60, ib=None):
+    """Fetch daily bars via IBKR data shim; ib param added for shim compatibility."""
+    if ib is not None:
+        try:
+            from src.data_shim import get_daily_bars
+            return get_daily_bars(symbol, days, ib)
+        except Exception:
+            pass
+    # Fallback: empty DataFrame (strategy will fail its data check gracefully)
+    import pandas as pd
+    return pd.DataFrame()
 
 
-def _get_intraday_bars(symbol: str, period: str = "1d", interval: str = "5m"):
-    yahoo_sym = symbol.replace(" B", "-B").replace(" A", "-A")
-    return yf.Ticker(yahoo_sym).history(period=period, interval=interval)
+def _get_intraday_bars(symbol: str, period: str = '1d', interval: str = '5m', ib=None):
+    """Fetch intraday bars via IBKR data shim; ib param added for shim compatibility."""
+    import pandas as pd
+    n_bars_map = {('1d', '5m'): 78, ('5d', '5m'): 390, ('2d', '5m'): 156}
+    n_bars = n_bars_map.get((period, interval), 78)
+    if ib is not None:
+        try:
+            from src.data_shim import get_intraday_bars
+            return get_intraday_bars(symbol, n_bars, ib)
+        except Exception:
+            pass
+    return pd.DataFrame()
 
 
 def _in_time_window(rules: dict) -> tuple[bool, str]:
@@ -109,7 +117,7 @@ def _gap_and_go(symbol: str, ib) -> dict:
 
     # Fetch daily bars
     try:
-        bars = _get_daily_bars(symbol, days=220)
+        bars = _get_daily_bars(symbol, days=220, ib=ib)
         if len(bars) < 2:
             result["reasons"] = ["insufficient price history"]
             _log_result(result)
@@ -169,7 +177,7 @@ def _gap_and_go(symbol: str, ib) -> dict:
 
     # Fetch intraday bars
     try:
-        intra = _get_intraday_bars(symbol, period="1d", interval="5m")
+        intra = _get_intraday_bars(symbol, period="1d", interval="5m", ib=ib)
         if len(intra) < 3:
             result["reasons"] = ["insufficient intraday bars"]
             _log_result(result)
@@ -193,7 +201,7 @@ def _gap_and_go(symbol: str, ib) -> dict:
         if time_normalize and bars_today > 0:
             # Get multi-day 5m bars to compare same elapsed period
             try:
-                intra_hist = _get_intraday_bars(symbol, period=f"{rvol_lookback}d", interval="5m")
+                intra_hist = _get_intraday_bars(symbol, period=f"{rvol_lookback}d", interval="5m", ib=ib)
                 intra_hist_et = intra_hist.copy()
                 intra_hist_et.index = intra_hist_et.index.tz_convert(ET)
                 today_date = datetime.now(ET).date()
@@ -281,7 +289,7 @@ def _orb_15(symbol: str, ib) -> dict:
         return result
 
     try:
-        intra = _get_intraday_bars(symbol, period="1d", interval="5m")
+        intra = _get_intraday_bars(symbol, period="1d", interval="5m", ib=ib)
         if intra.empty:
             result["reasons"] = ["no intraday data"]
             _log_result(result)
@@ -304,7 +312,7 @@ def _orb_15(symbol: str, ib) -> dict:
         current = float(intra_et["Close"].iloc[-1])
 
         # Daily bars for trend filter
-        daily = _get_daily_bars(symbol, days=210)
+        daily = _get_daily_bars(symbol, days=210, ib=ib)
         sma200 = float(daily["Close"].tail(200).mean()) if len(daily) >= 200 else 0.0
         prev_close = float(daily["Close"].iloc[-2]) if len(daily) >= 2 else 0.0
 
@@ -357,7 +365,7 @@ def _vwap_reclaim(symbol: str, ib) -> dict:
         return result
 
     try:
-        intra = _get_intraday_bars(symbol, period="1d", interval="5m")
+        intra = _get_intraday_bars(symbol, period="1d", interval="5m", ib=ib)
         if len(intra) < 10:
             result["reasons"] = ["insufficient intraday data"]
             _log_result(result)
@@ -377,7 +385,7 @@ def _vwap_reclaim(symbol: str, ib) -> dict:
         i2 = bool(float(intra["Volume"].iloc[-1]) > float(intra["Volume"].iloc[-2]) * 1.5)
 
         # Daily trend
-        daily  = _get_daily_bars(symbol, days=210)
+        daily  = _get_daily_bars(symbol, days=210, ib=ib)
         sma200 = float(daily["Close"].tail(200).mean()) if len(daily) >= 200 else 0.0
         d1 = bool(float(daily["Close"].iloc[-1]) > sma200) if sma200 > 0 else True
 
@@ -426,7 +434,7 @@ def _hod_break(symbol: str, ib) -> dict:
         return result
 
     try:
-        intra = _get_intraday_bars(symbol, period="1d", interval="5m")
+        intra = _get_intraday_bars(symbol, period="1d", interval="5m", ib=ib)
         if len(intra) < 5:
             result["reasons"] = ["insufficient intraday data"]
             _log_result(result)
@@ -443,7 +451,7 @@ def _hod_break(symbol: str, ib) -> dict:
         avg_vol = float(intra["Volume"].iloc[:-1].mean())
         i2 = bool(float(intra["Volume"].iloc[-1]) > avg_vol * 2.0)
 
-        daily  = _get_daily_bars(symbol, days=210)
+        daily  = _get_daily_bars(symbol, days=210, ib=ib)
         sma200 = float(daily["Close"].tail(200).mean()) if len(daily) >= 200 else 0.0
         prev_day_high = float(daily["High"].iloc[-2]) if len(daily) >= 2 else 0.0
         d1 = bool(current > prev_day_high)
@@ -494,7 +502,7 @@ def _volume_spike(symbol: str, ib) -> dict:
         _log_result(result); return result
 
     try:
-        intra = _get_intraday_bars(symbol, period="5d", interval="5m")
+        intra = _get_intraday_bars(symbol, period="5d", interval="5m", ib=ib)
         if len(intra) < 10:
             result["reasons"] = ["insufficient bars"]
             _log_result(result); return result
@@ -568,7 +576,7 @@ def _momentum_15(symbol: str, ib) -> dict:
         _log_result(result); return result
 
     try:
-        intra = _get_intraday_bars(symbol, period="5d", interval="5m")
+        intra = _get_intraday_bars(symbol, period="5d", interval="5m", ib=ib)
         if len(intra) < 10:
             result["reasons"] = ["insufficient bars"]
             _log_result(result); return result
@@ -645,7 +653,7 @@ def _trend_rider(symbol: str, ib) -> dict:
         _log_result(result); return result
 
     try:
-        intra = _get_intraday_bars(symbol, period="5d", interval="5m")
+        intra = _get_intraday_bars(symbol, period="5d", interval="5m", ib=ib)
         if len(intra) < 25:
             result["reasons"] = ["need 25+ bars for EMAs"]
             _log_result(result); return result
@@ -673,7 +681,7 @@ def _trend_rider(symbol: str, ib) -> dict:
         rvol       = today_vol / (avg_5m_vol * bars_today) if avg_5m_vol > 0 else 0
 
         # Daily gap for context
-        daily = _get_daily_bars(symbol, days=5)
+        daily = _get_daily_bars(symbol, days=5, ib=ib)
         gap_pct = 0.0
         if len(daily) >= 2:
             gap_pct = (float(daily["Open"].iloc[-1]) - float(daily["Close"].iloc[-2])) / float(daily["Close"].iloc[-2]) * 100
@@ -714,6 +722,156 @@ def _trend_rider(symbol: str, ib) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────────
+# STRATEGY 8: Noise Area (Zarattini/Aziz/Barbon 2024)
+# SPY/QQQ/IWM only. Enter at HH:00 or HH:30 when price breaks
+# above open × (1 + avg_return_at_this_minute_over_14_days).
+# Exit: VWAP touch (managed in cycle.py) or 15:51 force close.
+# ─────────────────────────────────────────────────────────────────
+
+def _noise_area(symbol: str, ib) -> dict:
+    """Noise area breakout for SPY/QQQ/IWM (long only)."""
+    rules = _load_rules()
+    result = {"strategy": "noise_area", "symbol": symbol,
+              "pass": False, "reasons": [], "price": 0.0,
+              "filters": {
+                  "F1_etf_universe": False,
+                  "F2_timing_half_hour": False,
+                  "F3_above_upper_boundary": False,
+              },
+              "values": {}}
+
+    # F1: ETF universe check
+    if symbol not in {"SPY", "QQQ", "IWM"}:
+        result["reasons"] = [f"F1: {symbol} not in noise area universe (SPY/QQQ/IWM)"]
+        _log_result(result)
+        return result
+    result["filters"]["F1_etf_universe"] = True
+
+    if _already_held(symbol, ib):
+        result["reasons"] = ["already in position"]
+        _log_result(result)
+        return result
+
+    in_window, reason = _in_time_window(rules)
+    if not in_window:
+        result["reasons"] = [reason]
+        _log_result(result)
+        return result
+
+    try:
+        # Fetch 16 trading days of 5-min bars (14 history + buffer)
+        intra = _get_intraday_bars(symbol, period="5d", interval="5m", ib=ib)
+        # We need more history — get ~16 days worth
+        try:
+            from src.data_shim import get_intraday_bars as _gib
+            intra = _gib(symbol, 16 * 78, ib)
+        except Exception:
+            pass  # fall back to what we have
+
+        if len(intra) < 78:
+            result["reasons"] = ["insufficient intraday history for noise area"]
+            _log_result(result)
+            return result
+
+        intra_et = intra.copy()
+        try:
+            intra_et.index = intra_et.index.tz_convert(ET)
+        except Exception:
+            try:
+                intra_et.index = intra_et.index.tz_localize(ET)
+            except Exception:
+                pass
+
+        now = datetime.now(ET)
+        today = now.date()
+
+        # F2: Check timing — must be within 2 min of HH:00 or HH:30
+        current_minute = now.minute
+        is_half_hour_bar = current_minute <= 2 or (29 <= current_minute <= 31)
+        result["filters"]["F2_timing_half_hour"] = is_half_hour_bar
+        if not is_half_hour_bar:
+            result["reasons"] = [f"F2: not at HH:00 or HH:30 (minute={current_minute})"]
+            _log_result(result)
+            return result
+
+        # Determine reference minute string (e.g. '10:30')
+        ref_minute = f"{now.hour:02d}:{'00' if current_minute <= 2 else '30'}"
+
+        # Today's bars
+        today_bars = intra_et[intra_et.index.date == today]
+        if today_bars.empty:
+            result["reasons"] = ["no today bars"]
+            _log_result(result)
+            return result
+
+        today_open = float(today_bars["Open"].iloc[0])
+        current_price = float(today_bars["Close"].iloc[-1])
+
+        # Compute avg return at ref_minute across past 14 trading days
+        import numpy as np
+        hist_returns = []
+        past_dates = sorted({d for d in intra_et.index.date if d < today}, reverse=True)[:14]
+        for past_day in past_dates:
+            day_bars = intra_et[intra_et.index.date == past_day]
+            if day_bars.empty:
+                continue
+            day_open = float(day_bars["Open"].iloc[0])
+            if day_open <= 0:
+                continue
+            bars_at_t = day_bars[day_bars.index.strftime("%H:%M") == ref_minute]
+            if bars_at_t.empty:
+                continue
+            close_at_t = float(bars_at_t["Close"].iloc[-1])
+            ret = (close_at_t - day_open) / day_open
+            hist_returns.append(ret)
+
+        if len(hist_returns) < 5:
+            result["reasons"] = [f"insufficient history at {ref_minute} ({len(hist_returns)} days)"]
+            _log_result(result)
+            return result
+
+        avg_ret = float(np.mean(hist_returns))
+        abs_avg = abs(avg_ret)
+        upper_boundary = today_open * (1 + abs_avg)
+        lower_boundary = today_open * (1 - abs_avg)
+
+        result["values"] = {
+            "upper_boundary": round(upper_boundary, 4),
+            "lower_boundary": round(lower_boundary, 4),
+            "avg_ret_14d": round(avg_ret, 6),
+            "ref_minute": ref_minute,
+            "price": round(current_price, 4),
+            "today_open": round(today_open, 4),
+        }
+
+        # F3: Price above upper boundary
+        f3 = bool(current_price > upper_boundary)
+        result["filters"]["F3_above_upper_boundary"] = f3
+        if not f3:
+            result["reasons"] = [
+                f"F3: price {current_price:.4f} <= upper boundary {upper_boundary:.4f} "
+                f"(avg_ret={avg_ret:.4f}, open={today_open:.4f})"
+            ]
+            _log_result(result)
+            return result
+
+        result["pass"] = True
+        result["price"] = current_price
+        result["reasons"] = [
+            f"noise area breakout at {ref_minute}: "
+            f"price {current_price:.4f} > UB {upper_boundary:.4f} "
+            f"(14d avg_ret={avg_ret:+.4f})"
+        ]
+        _log_result(result)
+        return result
+
+    except Exception as e:
+        result["reasons"] = [f"noise area error: {e}"]
+        _log_result(result)
+        return result
+
+
+# ─────────────────────────────────────────────────────────────────
 # Registry + multi-strategy concurrent dispatcher
 # ─────────────────────────────────────────────────────────────────
 
@@ -725,6 +883,7 @@ STRATEGIES = {
     "volume_spike": _volume_spike,
     "momentum_15":  _momentum_15,
     "trend_rider":  _trend_rider,
+    "noise_area":   _noise_area,
 }
 
 STRATEGY_DESCRIPTIONS = {
@@ -735,6 +894,18 @@ STRATEGY_DESCRIPTIONS = {
     "volume_spike": "⚡ AGGRESSIVE: 3x+ RVOL on any bar near HOD — fires all day",
     "momentum_15":  "⚡ AGGRESSIVE: 1.5%+ surge in 15 min above VWAP — fires all day",
     "trend_rider":  "⚡ AGGRESSIVE: Price > 9EMA > 20EMA above VWAP with volume — continuous",
+    "noise_area":   "★ ETF ONLY (SPY/QQQ/IWM): Noise area breakout at HH:00/HH:30 — Zarattini/Aziz/Barbon 2024",
+}
+
+STRATEGY_PRIORITY: dict[str, int] = {
+    "noise_area":    0,
+    "gap_and_go":    1,
+    "orb_15":        2,
+    "vwap_reclaim":  3,
+    "hod_break":     4,
+    "momentum_15":   5,
+    "volume_spike":  6,
+    "trend_rider":   7,
 }
 
 
@@ -747,28 +918,73 @@ def evaluate(symbol: str, ib) -> dict:
 
 
 def evaluate_all(symbol: str, ib) -> dict:
-    """Multi-strategy concurrent evaluation. Returns first passing strategy result,
-    or the result with the most filters passed if none pass."""
+    """Multi-strategy dispatcher ranked by rolling expectancy.
+
+    Runs all active strategies, collects passers, ranks by rolling 20-trade
+    expectancy (highest wins), tie-breaks by STRATEGY_PRIORITY. Logs all
+    non-winning passers to rejected_signals.csv.
+    """
+    from src.expectancy import rolling_expectancy
     rules = _load_rules()
     active = rules.get("active_strategies", ["gap_and_go"])
 
-    best = None
-    best_score = -1
-
+    # Run all active strategies, collect results
+    all_results = {}
     for strat_name in active:
         fn = STRATEGIES.get(strat_name)
         if not fn:
             continue
         r = fn(symbol, ib)
-        if r["pass"]:
-            return r  # first pass wins — enter immediately
-        score = sum(1 for v in r.get("filters", {}).values() if v)
-        if score > best_score:
-            best_score = score
-            best = r
+        all_results[strat_name] = r
 
-    return best or {"strategy": "none", "symbol": symbol, "pass": False,
-                    "reasons": ["no active strategies"], "price": 0.0, "filters": {}}
+    # Separate passers from non-passers
+    passers = {k: v for k, v in all_results.items() if v.get("pass")}
+
+    if not passers:
+        # Return best non-passer by filter score (existing fallback behavior)
+        best = None
+        best_score = -1
+        for r in all_results.values():
+            score = sum(1 for v in r.get("filters", {}).values() if v)
+            if score > best_score:
+                best_score = score
+                best = r
+        return best or {
+            "strategy": "none", "symbol": symbol, "pass": False,
+            "reasons": ["no active strategies"], "price": 0.0, "filters": {}
+        }
+
+    # Rank passers by rolling expectancy, tie-break by STRATEGY_PRIORITY
+    def rank_key(strat_name: str) -> tuple:
+        exp = rolling_expectancy(strat_name, n=20)
+        priority = STRATEGY_PRIORITY.get(strat_name, 99)
+        return (-exp, priority)  # negate so highest expectancy sorts first
+
+    ranked = sorted(passers.keys(), key=rank_key)
+    winner_name = ranked[0]
+    winner_result = passers[winner_name]
+
+    # Log rejected passers (strategies that passed but didn't win)
+    losers = [k for k in ranked[1:]]
+    if losers:
+        try:
+            from src.logging_helpers import log_rejected_signal_csv
+            winner_exp = rolling_expectancy(winner_name, n=20)
+            for loser_name in losers:
+                loser_exp = rolling_expectancy(loser_name, n=20)
+                log_rejected_signal_csv(
+                    ts=datetime.now(ET).isoformat(),
+                    symbol=symbol,
+                    winning_strategy=winner_name,
+                    rejected_strategy=loser_name,
+                    winning_expectancy=winner_exp,
+                    rejected_expectancy=loser_exp,
+                    reason=f"lower expectancy or priority (exp={loser_exp:.4f} vs {winner_exp:.4f})",
+                )
+        except Exception:
+            pass  # logging failure must never block execution
+
+    return winner_result
 
 
 def list_strategies() -> dict:
