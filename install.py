@@ -200,10 +200,17 @@ print(green(f"  ✓ {result.stdout.strip()}"))
 
 # ── 9. Success banner ────────────────────────────────────────────────────────
 start_cmd = "start.bat" if os_name == "Windows" else "./start.sh"
-print(green(bold("""
+try:
+    print(green(bold("""
 ╔══════════════════════════════════════════════════════════╗
 ║           Install complete! Bot is ready.                ║
 ╚══════════════════════════════════════════════════════════╝
+""")))
+except UnicodeEncodeError:
+    print(green(bold("""
+============================================================
+           Install complete! Bot is ready.
+============================================================
 """)))
 print(f"  Start the bot:  {bold(start_cmd)}")
 print(f"  Dashboard:      {bold('http://localhost:8000')}")

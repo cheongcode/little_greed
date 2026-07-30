@@ -159,14 +159,21 @@ def main():
     reports_dir = Path("reports")
     reports_dir.mkdir(exist_ok=True)
 
-    # Print banner
+    # Print banner (Windows-safe: fallback to ASCII if Unicode fails)
     now = datetime.now(ET).strftime("%Y-%m-%d %H:%M:%S ET")
     watchlist_status = "PRESENT" if Path("watchlist.txt").exists() else "MISSING (run morning_prefilter first)"
-    print(f"╔══════════════════════════════════════╗")
-    print(f"║  little_greed runner v{VERSION}           ║")
-    print(f"║  {now}         ║")
-    print(f"║  watchlist: {watchlist_status[:24]:<24} ║")
-    print(f"╚══════════════════════════════════════╝")
+    try:
+        print(f"╔══════════════════════════════════════╗")
+        print(f"║  little_greed runner v{VERSION}           ║")
+        print(f"║  {now}         ║")
+        print(f"║  watchlist: {watchlist_status[:24]:<24} ║")
+        print(f"╚══════════════════════════════════════╝")
+    except UnicodeEncodeError:
+        print("=" * 40)
+        print(f"little_greed runner v{VERSION}")
+        print(f"{now}")
+        print(f"watchlist: {watchlist_status[:24]}")
+        print("=" * 40)
     print("Press Ctrl+C to stop.")
 
     logger.info(f"runner started v{VERSION}")
