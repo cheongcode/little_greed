@@ -32,6 +32,11 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
+
+# Ensure static and templates directories exist
+Path("static").mkdir(exist_ok=True)
+Path("templates").mkdir(exist_ok=True)
+
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 

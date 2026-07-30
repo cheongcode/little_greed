@@ -4,35 +4,49 @@ REM Stop the little_greed bot cleanly (Windows)
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
 
-echo Stopping little_greed...
+echo.
+echo ============================================================
+echo              Stopping little_greed
+echo ============================================================
 echo.
 
-REM Kill run.py process
-taskkill /F /FI "WINDOWTITLE eq run.py*" 2>nul
-if !ERRORLEVEL! equ 0 (
-    echo [✓] Stopped run.py
-) else (
-    REM Try killing by module name (alternative method)
-    tasklist | find /i "python.exe" >nul
+set KILLED=0
+
+REM ── 1. Kill process using port 8000 (the web server) ────────
+echo [*] Looking for processes using port 8000...
+for /f "tokens=5" %%A in ('netstat -ano 2^>nul ^| find ":8000"') do (
+    echo [*] Found PID %%A on port 8000
+    taskkill /F /PID %%A >nul 2>&1
     if !ERRORLEVEL! equ 0 (
-        REM This is risky - only do if needed
-        REM taskkill /F /IM python.exe 2>nul >nul
-        echo [*] No running processes found
+        echo [✓] Stopped process %%A
+        set KILLED=1
     )
 )
 
-REM Kill uvicorn
-taskkill /F /FI "WINDOWTITLE eq uvicorn*" 2>nul
-if !ERRORLEVEL! equ 0 (
-    echo [✓] Stopped uvicorn
+REM ── 2. Kill any python.exe running run.py ──────────────────
+echo [*] Looking for run.py processes...
+wmic process where name="python.exe" get processid 2>nul | findstr . >procs.tmp
+for /f %%A in (procs.tmp) do (
+    taskkill /F /PID %%A >nul 2>&1
+    if !ERRORLEVEL! equ 0 (
+        echo [✓] Stopped Python process %%A
+        set KILLED=1
+    )
 )
+del /q procs.tmp 2>nul
 
-REM Clean up PID file
+REM ── 3. Clean up .run_pid file ───────────────────────────────
 if exist ".run_pid" (
     del /q .run_pid
+    echo [✓] Cleaned up .run_pid
 )
 
 echo.
-echo [✓] little_greed stopped cleanly.
+if !KILLED! equ 1 (
+    echo [✓] little_greed stopped
+) else (
+    echo [!] No processes found (bot might already be stopped)
+)
 echo.
+
 pause
