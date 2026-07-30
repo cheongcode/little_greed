@@ -1,51 +1,51 @@
 @echo off
-REM Stop the little_greed bot cleanly (Windows)
+REM =========================================================
+REM stop.bat - Stop little_greed bot cleanly
+REM ASCII-only, no special Unicode characters
+REM =========================================================
 
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
 
 echo.
-echo ============================================================
+echo =========================================================
 echo              Stopping little_greed
-echo ============================================================
+echo =========================================================
 echo.
 
-set KILLED=0
+set FOUND=0
 
-REM ── 1. Kill process using port 8000 (the web server) ────────
-echo [*] Looking for processes using port 8000...
+REM --- Kill process on port 8000 ---
+echo [*] Stopping dashboard server...
 for /f "tokens=5" %%A in ('netstat -ano 2^>nul ^| find ":8000"') do (
-    echo [*] Found PID %%A on port 8000
     taskkill /F /PID %%A >nul 2>&1
     if !ERRORLEVEL! equ 0 (
-        echo [✓] Stopped process %%A
-        set KILLED=1
+        echo [OK] Stopped PID %%A
+        set FOUND=1
     )
 )
 
-REM ── 2. Kill any python.exe running run.py ──────────────────
-echo [*] Looking for run.py processes...
-wmic process where name="python.exe" get processid 2>nul | findstr . >procs.tmp
-for /f %%A in (procs.tmp) do (
-    taskkill /F /PID %%A >nul 2>&1
+REM --- Kill Python processes ---
+echo [*] Stopping bot processes...
+for /f "tokens=2" %%A in ('tasklist /FI "IMAGENAME eq python.exe" /FO csv 2^>nul ^| findstr python') do (
+    taskkill /F /IM python.exe >nul 2>&1
     if !ERRORLEVEL! equ 0 (
-        echo [✓] Stopped Python process %%A
-        set KILLED=1
+        echo [OK] Stopped Python
+        set FOUND=1
     )
 )
-del /q procs.tmp 2>nul
 
-REM ── 3. Clean up .run_pid file ───────────────────────────────
+REM --- Clean up PID file ---
 if exist ".run_pid" (
-    del /q .run_pid
-    echo [✓] Cleaned up .run_pid
+    del /q .run_pid 2>nul
+    echo [OK] Cleaned .run_pid
 )
 
 echo.
-if !KILLED! equ 1 (
-    echo [✓] little_greed stopped
+if !FOUND! equ 1 (
+    echo [OK] Bot stopped
 ) else (
-    echo [!] No processes found (bot might already be stopped)
+    echo [INFO] No processes found - bot already stopped
 )
 echo.
 
